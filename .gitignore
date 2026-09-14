@@ -1,0 +1,30 @@
+# ROS / C++ build outputs
+build/
+devel/
+install/
+log/
+logs/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Downloaded datasets and generated maps
+data/
+datasets/
+*.bag
+*.bag.active
+*.db3
+*.mcap
+*.pcd
+*.ply
+*.e57
+
+# Local experiment outputs
+runs/
+outputs/
+wandb/
+
+# Credentials and local settings
+.env
+.env.*
+!.env.example
