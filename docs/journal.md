@@ -182,6 +182,37 @@ lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
   This is evidence the frozen config generalizes reasonably in general.
 - **Decision:** keep
 
+### 20260915T214917Z_lio_sam_exp14
+- **Method / sequence / split:** lio_sam / exp14 / tune
+- **Parent:** none (baseline)
+- **Hypothesis:** First LIO-SAM integration on exp14: dataset-adapted baseline (Madgwick
+  orientation adapter, point-cloud adapter, `T_L_I` extrinsics, 0.1 m blind zone, GPS/loop
+  closure disabled), no tuning yet — noise/leaf-size/keyframe params left at upstream
+  defaults, deferred to the phase-2 sweep since phase-1 manual tuning is explicitly skipped
+  for this method (confirmed decision, see `docs/methods.md` "LIO-SAM integration").
+- **Change:** first run of this method; no parent.
+- **Config hash:** `de4e1512999fd9c3c858926d26019dfb6cb28b1c0ef53f2ba55b0ff52ccf4cbe`
+- **Result:** status ok, coverage 99.3% (684/689). ATE trans RMSE **349.10 m**, median
+  180.45 m, p95 707.47 m; ATE rot RMSE **124.74 deg**. RPE 1s trans RMSE 156.02 m / rot
+  64.03 deg; RPE 10s trans RMSE 337.49 m / rot 107.23 deg.
+- **Interpretation:** Catastrophic divergence on exp14 itself, not a normal baseline gap —
+  positions grow from a plausible few metres to hundreds of metres within the 74 s sequence.
+  The run log shows 36 `"Large velocity, reset IMU-preintegration!"` warnings and 2
+  `"Not enough features!"` warnings starting partway through, i.e. a sustained
+  preintegration/scan-matching feedback loop, not a one-off blip. Likely contributors, not
+  isolated here (phase-1 manual root-causing is explicitly out of scope for this method): (1)
+  the Madgwick filter's accel-based tilt correction assumes near-static conditions to treat
+  the accelerometer as a gravity reference, which a handheld, fast-moving rig violates during
+  motion, and `imuRPYWeight: 0.01` feeds that synthesized roll/pitch into
+  `mapOptmization`'s pose graph as a soft constraint; (2) `Horizon_SCAN: 1800` is a
+  datasheet-derived estimate for the PandarXT-32, not a measured value, and may not match
+  this sensor's real per-scan azimuth binning (consistent with the feature-count warnings);
+  (3) every noise/leaf-size/keyframe param is still at LIO-SAM's own upstream default. (1)
+  and (3) are directly addressed by the sweep's search dimensions; (2) is a fixed
+  dataset-adaptation choice, not a sweep parameter, and is worth revisiting if the sweep
+  doesn't recover a reasonable trajectory.
+- **Decision:** investigate
+
 ### Map capture repeats (`_mapcapture`, 20260915T1905-1907Z) — pcd_save_en, rate 1.0, no sim-time
 - **Method / sequence / split:** fast_lio2 / exp14+exp16+exp18 / tune+heldout
 - **Parents:** `20260915T133833Z_fast_lio2_exp14`, `20260915T152627Z_fast_lio2_exp14`,

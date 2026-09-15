@@ -44,13 +44,19 @@ ADAPTER_PID=$!
 python3 /adapters/lio_sam/odom_to_tum.py _out_path:="$OUT_TUM" _topic:=/lio_sam/mapping/odometry &
 EXPORT_PID=$!
 
-rosrun lio_sam lio_sam_imageProjection &
+# imageProjection, featureExtraction and mapOptmization all call ros::init(argc, argv,
+# "lio_sam") in source (same literal name; imuPreintegration uses "roboat_loam") -- upstream's
+# own launch/run.launch relies on roslaunch's automatic per-<node> name remapping to make this
+# work. Plain `rosrun` has no such remapping, so without an explicit __name:= each new process
+# evicts the previous one from the ROS master ("new node registered with same name",
+# confirmed by hitting this directly) -- give each an explicit, distinct name.
+rosrun lio_sam lio_sam_imageProjection __name:=lio_sam_imageProjection &
 IMG_PID=$!
-rosrun lio_sam lio_sam_featureExtraction &
+rosrun lio_sam lio_sam_featureExtraction __name:=lio_sam_featureExtraction &
 FEAT_PID=$!
-rosrun lio_sam lio_sam_imuPreintegration &
+rosrun lio_sam lio_sam_imuPreintegration __name:=lio_sam_imuPreintegration &
 IMU_PID=$!
-rosrun lio_sam lio_sam_mapOptmization &
+rosrun lio_sam lio_sam_mapOptmization __name:=lio_sam_mapOptmization &
 MAP_PID=$!
 
 echo "waiting for lio_sam_imageProjection to subscribe to the adapted cloud..."
