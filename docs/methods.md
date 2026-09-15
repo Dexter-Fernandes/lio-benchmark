@@ -103,6 +103,11 @@ its `livox_ros_driver` build dependency, on `ros:noetic-ros-base` pinned by dige
   improved every metric (ATE trans RMSE 0.125 -> 0.041 m). A sibling 0.1 m candidate (run
   `20260915T152922Z_fast_lio2_exp14`) was strictly worse on every metric and reverted — 0.2 m
   is a measured sweet spot, not "finer is always better".
+- **Bayesian sweep (phase 2, `docs/protocol.md` §6.2, `docs/journal.md` sweep `yf5zcpr1`).**
+  16 trials over the region phase 1 established (noise covariance, voxel size, plus
+  previously-untried `point_filter_num`/`max_iteration`), `scripts/fast_lio2_sweep.py`. No
+  trial beat the manually-tuned baseline on both ATE trans and rot RMSE together — a negative
+  result; the config is unchanged.
 - **Extrinsics (point 5).** `extrinsic_T`/`extrinsic_R` in `configs/fast_lio2/hilti22.yaml`
   are `T_I_L` (confirmed **verify**: FAST-LIO2's README states extrinsic_T/R map LiDAR into
   IMU, i.e. `p_IMU = R * p_LiDAR + T`, the same convention as `T_I_L`), taken from

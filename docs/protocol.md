@@ -19,7 +19,8 @@ For each method we compare two configurations:
 - **Adapted baseline:** upstream defaults with only dataset adaptation, meaning topics, units,
   point fields, extrinsics and supplied IMU calibration. These must already be correct in the
   baseline, so tuning never hides an integration error.
-- **Tuned:** manually guided changes on exp14 (see §6), frozen before held-out evaluation.
+- **Tuned:** manually guided, and later automated-search, changes on exp14 (see §6), frozen
+  before held-out evaluation.
 
 ## 2. Data split
 
@@ -104,10 +105,17 @@ secondary, independent check. See [dataset.md](dataset.md).
   11.5 GiB RAM. Thread limits are recorded per run (`env.json`). GLIM runs CPU-only.
 - **Fresh state**: every run starts a new container with no persisted maps or caches.
 
-## 6. Manually guided tuning
+## 6. Tuning
 
-Tuning is manual and hypothesis-driven, not an automated sweep. Each attempt is a run record
-(`lio-bench run init … / eval --run-dir … / run close …`) containing:
+Tuning has two phases. Phase 1 is manual and hypothesis-driven; phase 2 is an automated
+search, and only runs once phase 1 has established a sensible search region for it to search.
+Both phases produce full run records; both get reported honestly, including failures and
+reverted attempts.
+
+### 6.1 Phase 1: manually guided
+
+Each attempt is a run record (`lio-bench run init … / eval --run-dir … / run close …`)
+containing:
 
 - the hypothesis and parent run;
 - the exact change;
@@ -124,6 +132,20 @@ Rules:
   multi-threaded methods are not deterministic.
 - Record every attempt, including failures, and report the tuning effort per method. Equal
   effort across methods is not claimed.
+
+### 6.2 Phase 2: automated search
+
+Once phase 1 has measured or bounded a parameter family (e.g. real noise covariance, a found
+voxel-size sweet spot), a Bayesian (or other) sweep may search that region automatically
+instead of hand-picking each value. Every trial still gets a full run record with the same
+fields as phase 1 (the "hypothesis" is the sweep's search region and its phase-1
+justification; the "change" is the sampled parameters) and is logged to W&B tagged `sweep`.
+The sweep's best result is reported as what it is — an automated search outcome — and, if
+kept, gets one confirmation entry in the journal same as any other kept run.
+
+Rankings and comparisons between methods still only use runs that exist; phase 2 does not
+exempt a method from phase 1 — sweeping without first establishing sane ranges from
+measurement or a prior phase-1 finding is not a phase-2 run, it's guessing with extra steps.
 
 ## 7. Reporting
 

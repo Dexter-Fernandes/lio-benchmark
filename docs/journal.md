@@ -113,3 +113,31 @@ lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
   fit a stable plane, especially at longer range, making registration noisier. 0.2 m is a
   measured sweet spot for this sequence's point density, not the finest tested value.
 - **Decision:** revert
+
+### Bayesian sweep `yf5zcpr1` (phase 2, `docs/protocol.md` §6.2) — 15 trials, no keep
+- **Method / sequence / split:** fast_lio2 / exp14 / tune
+- **Parent:** `20260915T152627Z_fast_lio2_exp14` (current kept baseline)
+- **Search region (from phase 1):** `acc_cov`/`gyr_cov` log-uniform around the measured
+  values (1e-5–1e-2, 1e-6–1e-3); `b_acc_cov`/`b_gyr_cov` log-uniform 1e-6–1e-2 (never
+  measured); `voxel_size` (coupled `filter_size_surf`/`filter_size_map`) uniform 0.1–0.4 m,
+  bracketing the found sweet spot; `point_filter_num` int 1–6; `max_iteration` int 2–6.
+  `wandb.sweep`, method `bayes`, objective `ate.trans_m.rmse` (minimize). Trials: `scripts/
+  fast_lio2_sweep.py`, each a full run record (`*_fast_lio2_exp14_sweep` in `runs/`) tagged
+  `sweep` in W&B, same as any other run — `docker/fast_lio2` unchanged. (A separate 1-trial
+  smoke-test sweep, `cmnwpb0x`, run `20260915T171523Z_fast_lio2_exp14_sweep`, validated the
+  script beforehand with the same search space; its result — trans RMSE 0.0453 m — is
+  consistent with the 15 below but isn't counted as one of them.)
+- **Result:** 15 trials, all status ok, coverage unchanged. Best by objective: trans RMSE
+  0.0406 m (run `20260915T175257Z_fast_lio2_exp14_sweep`), essentially tied with the
+  baseline's 0.0413 m, but its rotation RMSE (0.95°) is worse than the baseline's 0.83°. No
+  trial beat the baseline on *both* metrics — the best-rotation trial (0.68°, run
+  `20260915T175011Z_fast_lio2_exp14_sweep`) had worse translation (0.0486 m). Trans RMSE
+  across all 15 trials ranged 0.041–0.106 m; the baseline sits at the good end.
+- **Interpretation:** The sweep confirms rather than improves on phase 1 — the manually
+  measured/found region (real noise covariance, 0.2 m voxel) was already close to a local
+  optimum for `ate.trans_m.rmse` on exp14, at least across this parameter set and 15 trials.
+  `point_filter_num`/`max_iteration` varied across trials without a clear pattern, suggesting
+  they're not major levers here. No config change is warranted; the existing baseline stays
+  the frozen config. A negative result, but a real one — worth recording per protocol §6.2
+  rather than treated as if the sweep never ran.
+- **Decision:** revert (no trial promoted; baseline config unchanged)
