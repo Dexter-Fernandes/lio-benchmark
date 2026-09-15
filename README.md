@@ -3,10 +3,10 @@
 Reproducible LiDAR-inertial odometry benchmarking on Hilti-Oxford 2022, with containerised
 pipelines, W&B experiment tracking, and held-out trajectory evaluation.
 
-> **Status:** foundation only. The data pipeline, bag inspection, gap-aware evaluator, run
-> records and protocol are in place and tested. **No odometry method has been integrated
-> or run yet, so there are no results.** The first milestone is one verified end-to-end
-> FAST-LIO2 baseline on exp14.
+> **Status:** first milestone reached. The data pipeline, bag inspection, gap-aware
+> evaluator, run records and protocol are in place and tested, and FAST-LIO2 has one
+> verified end-to-end baseline run on exp14 (untuned, `docs/journal.md`). No other method
+> is integrated, and exp16/exp18 are still held out.
 
 ## Scope
 
@@ -78,7 +78,8 @@ project are set in `.env`.
 | `configs/eval/` | frozen evaluation parameters |
 | `src/lio_benchmark/` | download, convert, inspect, frames, evaluation, tracking, CLI |
 | `tests/` | hashing, downloads (local HTTP server), manifest, frames, trajectories, evaluator, conversion, run records |
-| `docker/`, `.devcontainer/` | tools image now; one per method as they are integrated |
+| `docker/`, `.devcontainer/` | tools image, fast_lio2 image; one per method as they are integrated |
+| `adapters/` | input/output conversion between the dataset and a method (e.g. `adapters/fast_lio2/`) |
 | `docs/` | protocol, dataset, methods, journal |
 | `results/` | curated, publishable tables and plots (none yet) |
 
