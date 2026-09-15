@@ -213,6 +213,58 @@ lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
   doesn't recover a reasonable trajectory.
 - **Decision:** investigate
 
+### Bayesian sweep `udrqijbp` (phase 2, `docs/protocol.md` §6.2, phase 1 explicitly skipped) — 8 trials, no keep
+- **Method / sequence / split:** lio_sam / exp14 / tune
+- **Parent:** `20260915T214917Z_lio_sam_exp14` (catastrophically divergent baseline, decision
+  investigate)
+- **Search region:** wide, centered on LIO-SAM's own upstream defaults (`config/params.yaml`),
+  **not** phase-1-measured — this method's phase-1 manual tuning is explicitly skipped
+  (confirmed decision, `docs/methods.md`). Per `docs/protocol.md` §6.2 this is a documented
+  deviation ("sweeping without a phase-1-justified region is guessing with extra steps, not a
+  real phase 2"), not equivalent rigor to `fast_lio2_sweep.py`'s measured-region search. IMU
+  noise (4 params) log-uniform 1-2 orders of magnitude either side of upstream defaults;
+  feature/registration leaf sizes (3 params) uniform 0.05-1.0 m; keyframe distance/angle
+  thresholds (2 params) uniform 0.1-2.0 m / 0.05-0.5 rad. `wandb.sweep`, method `bayes`,
+  objective `ate.trans_m.rmse` (minimize). 8 trials (not FAST-LIO2's 15) sized to this
+  hardware given LIO-SAM's heavier per-trial runtime. `scripts/lio_sam_sweep.py`.
+- **Result:** 8 trials, all status ok. Translation RMSE varied enormously across trials
+  (7.9 m to 2877 m), but **rotation RMSE stayed catastrophically bad in every single trial**
+  (100-170°, i.e. essentially no usable heading estimate) regardless of which IMU-noise/
+  leaf-size/keyframe values were sampled:
+
+  | trial | ATE trans RMSE (m) | ATE rot RMSE (deg) |
+  |---|---|---|
+  | solar-sweep-3 (best by objective) | 7.95 | 170.23 |
+  | wandering-sweep-2 | 17.17 | 122.21 |
+  | sweet-sweep-5 | 28.34 | 158.26 |
+  | worthy-sweep-7 | 360.42 | 130.24 |
+  | revived-sweep-6 | 362.84 | 129.25 |
+  | volcanic-sweep-1 | 463.48 | 134.99 |
+  | rural-sweep-4 | 466.02 | 126.81 |
+  | lyric-sweep-8 | 2877.37 | 119.83 |
+  | baseline (parent) | 349.10 | 124.74 |
+
+  Best by the chosen objective (translation RMSE): `solar-sweep-3`
+  (`imuAccNoise=1.475e-5, imuGyrNoise=1.784e-3, imuAccBiasN=2.033e-7, imuGyrBiasN=5.060e-4,
+  odometrySurfLeafSize=0.897, mappingCornerLeafSize=0.152, mappingSurfLeafSize=0.978,
+  keyframe dist=1.763 m, angle=0.099 rad`) — but its rotation RMSE (170.2°) is *worse* than
+  the baseline's (124.7°), the same "no trial beats baseline on both metrics" pattern
+  FAST-LIO2's own sweep found, just far more extreme here.
+- **Interpretation:** The complete lack of any trend in rotation RMSE across a 9-dimensional,
+  wide-range sweep of noise/leaf-size/keyframe params strongly suggests the rotation failure
+  is **not** something this parameter family can fix — it points at something structural,
+  most plausibly the Madgwick orientation adapter (`adapters/lio_sam/orientation_filter.py`):
+  its accel-based tilt correction assumes near-static conditions to treat the accelerometer
+  as a gravity reference, which a handheld, fast-moving rig genuinely violates during motion,
+  independent of any of LIO-SAM's own tunable params. This is exactly the kind of root cause
+  phase-1 manual/hypothesis-driven investigation (`docs/protocol.md` §6.1, explicitly skipped
+  for this method per the confirmed decision) exists to catch before reaching a sweep — its
+  absence here is a direct, visible cost of that decision, not a hidden one.
+- **Decision:** revert (no trial promoted; `configs/lio_sam/hilti22.yaml` unchanged and
+  remains the frozen config, matching FAST-LIO2's "no trial beats baseline on both metrics ->
+  keep" precedent). The rotation failure is flagged **open/investigate**, not resolved, ahead
+  of held-out evaluation below.
+
 ### Map capture repeats (`_mapcapture`, 20260915T1905-1907Z) — pcd_save_en, rate 1.0, no sim-time
 - **Method / sequence / split:** fast_lio2 / exp14+exp16+exp18 / tune+heldout
 - **Parents:** `20260915T133833Z_fast_lio2_exp14`, `20260915T152627Z_fast_lio2_exp14`,
