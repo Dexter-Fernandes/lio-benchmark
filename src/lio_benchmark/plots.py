@@ -45,8 +45,8 @@ def plot_evaluation(gt: Trajectory, result: EvalResult, out_dir: Path, title: st
     t0 = gt.t[0]
 
     fig, ax = plt.subplots(figsize=(7, 6))
-    ax.plot(gt.p[:, 0], gt.p[:, 1], color="0.35", lw=1.5, label="ground truth")
-    ax.plot(result.aligned.p[:, 0], result.aligned.p[:, 1], lw=1.2, label="estimate (SE(3)-aligned)")
+    ax.plot(gt.p[:, 0], gt.p[:, 1], color="green", lw=3, label="ground truth")
+    ax.plot(result.aligned.p[:, 0], result.aligned.p[:, 1], color="red", lw=1, label="estimate (SE(3)-aligned)")
     ax.set_aspect("equal", adjustable="datalim")
     ax.set_xlabel("x [m]")
     ax.set_ylabel("y [m]")
