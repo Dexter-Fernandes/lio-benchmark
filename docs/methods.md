@@ -250,6 +250,18 @@ master at integration time), on `ros:noetic-ros-base` (same pinned digest as `fa
   no configurable optimization-iteration-count param (`mapOptmization.cpp` hardcodes 30 LM
   iterations at `src/mapOptmization.cpp:1292`), unlike FAST-LIO2's `max_iteration` -- verified
   against source, so no such sweep dimension exists for this method.
+- **Status: unresolved rotation failure, not a working baseline yet.** The exp14 baseline, all
+  8 sweep trials, and both held-out runs (`docs/journal.md`) share one pattern: ATE rotation
+  RMSE stays 100-170 deg in every single run regardless of config, while translation error
+  varies with the sampled params. This is not a normal tuning or generalization gap like
+  FAST-LIO2's -- it is a structural failure, most plausibly the Madgwick orientation adapter's
+  accel-based tilt correction breaking down under this handheld rig's real motion (the filter
+  assumes near-static conditions to treat the accelerometer as a gravity reference; this rig
+  doesn't provide that). Root-causing this is exactly what phase-1 manual investigation
+  (`docs/protocol.md` §6.1) exists to catch before a sweep, and it was explicitly skipped for
+  this method (confirmed decision) -- its absence is the direct, visible cost, not a silent
+  one. **Do not use this integration for cross-method comparison until the rotation failure
+  is isolated and fixed.**
 
 ## Exclusions
 

@@ -1,7 +1,10 @@
 # lio-benchmark — agent handoff
 
 Prepared: 14 September 2026. Updated: 15 September 2026. Status: foundation done, **FAST-LIO2
-fully integrated, tuned and evaluated held-out**, merged to `main`. LIO-SAM is next.
+fully integrated, tuned and evaluated held-out**, merged to `main`. **LIO-SAM integration
+scaffolding is complete and runs end-to-end (branch `feat/lio-sam-integration`, not merged),
+but has an unresolved, structural rotation failure across every run — not a working baseline
+for comparison yet.** See "LIO-SAM: status and open issue" below.
 
 ## Goal and confirmed decisions
 
@@ -64,8 +67,8 @@ artifacts) repeats with method-specific changes only. Summary:
 every run lands on the dashboard automatically. `scripts/wandb_setup.sh` does one-time login.
 `lio-bench report` builds/updates a saved W&B Report comparing every logged run.
 
-Not done: LIO-SAM, GLIM, DLIO, original FAST-LIO, RTAB-Map, LOAM. No cross-method comparison
-yet (only one method has results).
+Not done (working): LIO-SAM (see below), GLIM, DLIO, original FAST-LIO, RTAB-Map, LOAM. No
+cross-method comparison yet (only FAST-LIO2 has trustworthy results).
 
 ## Hardware and execution constraints
 
@@ -88,52 +91,73 @@ One headless experiment at a time; CPU-only for GLIM; one or two compile jobs. F
 fine on this hardware at 1.0x real-time playback — a reasonable default to try for LIO-SAM too,
 falling back to slower playback only if it overloads.
 
-## LIO-SAM: next milestone
+## LIO-SAM: status and open issue
 
-Follow the exact FAST-LIO2 pattern (`docker/fast_lio2/`, `adapters/fast_lio2/`,
-`configs/fast_lio2/`, `scripts/run_fast_lio2.sh`, `docs/methods.md`'s FAST-LIO2 section) with a
-new `docker/lio_sam/`, `adapters/lio_sam/`, `configs/lio_sam/`, `scripts/run_lio_sam.sh`. Start
-a new branch `feat/lio-sam-integration`.
+Branch `feat/lio-sam-integration` (not merged — do not merge until the rotation failure below
+is fixed and results are trustworthy). Full scaffolding done and builds/runs end-to-end,
+following the FAST-LIO2 pattern (`docker/lio_sam/`, `adapters/lio_sam/`, `configs/lio_sam/`,
+`scripts/run_lio_sam.sh`), with two confirmed decisions from this session:
 
-Method-specific work, in order:
+- **Orientation:** a Madgwick filter adapter (`adapters/lio_sam/orientation_filter.py`,
+  `imu_orientation_node.py`), not a named derivative — genuine upstream `TixiaoShan/LIO-SAM`
+  with a sensor-only dataset adapter. Confirmed necessary: `imuConverter()`
+  (`include/utility.h`) calls `ros::shutdown()` on a near-zero-norm quaternion, which the raw
+  all-zero orientation triggers immediately.
+- **Tuning:** phase-1 manual/hypothesis-driven tuning (`docs/protocol.md` §6.1) was
+  **explicitly skipped** for this method (confirmed decision) — went straight from baseline
+  to a wide, upstream-default-centered Bayesian sweep. **This turned out to matter**: see
+  below.
 
-1. **Resolve the orientation problem before anything else** (`docs/methods.md` point 1,
-   `docs/dataset.md`). Hilti's `/alphasense/imu` has an all-zero orientation quaternion with
-   `orientation_covariance[0] = 0` — not flagged absent, so LIO-SAM would silently consume a
-   garbage quaternion if it reads `msg.orientation`. Check upstream (`TixiaoShan/LIO-SAM`)
-   source for exactly where/whether it reads `orientation` (IMU preintegration and the
-   `imuHandler` in particular). Two options, per HANDOFF's original plan:
-   - a documented, sensor-only orientation adapter (complementary or Madgwick filter on the
-     same 6-axis IMU, parameters recorded, never touching ground truth), or
-   - an explicitly named 6-axis-compatible derivative (e.g. LIORF) — never silently relabel
-     a derivative as upstream LIO-SAM.
-   This decision gates the rest of the integration; don't start the Dockerfile before it's made.
-2. **Pin the source and base image.** LIO-SAM's bundled Docker instructions target Kinetic; a
-   Noetic build needs its own validation (build GTSAM, PCL, etc. against Noetic — check
-   upstream issues/forks for a known-working Noetic combination before improvising one).
-3. **Point-cloud adapter.** LIO-SAM's `imageProjection.cpp` reads a per-point relative time
-   field (check its exact name/type/units against Hilti's absolute `timestamp`, same shape of
-   problem as `adapters/fast_lio2/pointcloud_adapter.py` — reuse the same unit-testing pattern
-   against real scans in `tests/test_adapters.py`).
-4. **Extrinsics.** `configs/dataset/hilti22.yaml`'s `T_I_L` is the shared source of truth; check
-   LIO-SAM's own extrinsic convention (it typically wants `extrinsicRot`/`extrinsicTrans` as
-   `T_I_L` or `T_L_I` — verify against source, don't assume) with a known-answer test like
-   `frames.check_lidar_extrinsics`.
-5. **Config.** `configs/lio_sam/hilti22.yaml`, dataset-adapted baseline only (topics, units,
-   extrinsics, blind zone/min range from measured ranges — `docs/dataset.md`) — no tuning yet.
-   Disable GPS factor and loop closure for the primary online-odometry comparison
-   (`docs/protocol.md` §1).
-6. **Run wrapper** (`scripts/run_lio_sam.sh`): same shape as `run_fast_lio2.sh` — roscore,
-   adapter(s), an odometry→TUM exporter, the LIO-SAM node, readiness wait, timeout, SIGINT
-   shutdown if it saves anything on exit, trajectory + map export. Check whether LIO-SAM's
-   output topic publishes IMU or LiDAR body poses before choosing `lio-bench eval --frame`.
-7. **Baseline run** on exp14: `lio-bench run init` → run → `eval --frame ... --run-dir` →
-   `run close` → `log`. This is the first checkpoint — a working, dataset-adapted baseline,
-   not a tuned one. Journal it (`docs/journal.md`) same as the FAST-LIO2 baseline entry.
-8. Only after a verified baseline: phase-1 manual tuning (`docs/protocol.md` §6.1), then
-   phase-2 automated search only if phase 1 finds a sensible region (§6.2,
-   `scripts/fast_lio2_sweep.py` is a template — swap in LIO-SAM's config path and image).
-9. Freeze the config, evaluate exp16/exp18 held out, journal the results (don't tune on them).
+**What happened, in order** (full detail in `docs/journal.md`, `docs/methods.md` "LIO-SAM
+integration"):
+
+1. Noetic/GTSAM build: LIO-SAM's own bundled Docker instructions target Kinetic; used the
+   upstream-maintainer-endorsed fix from `github.com/TixiaoShan/LIO-SAM/issues/206` (GTSAM
+   4.0.3 from the official PPA, two source patches for OpenCV/FLANN and C++14) — builds clean.
+2. First run attempt crashed immediately: three of LIO-SAM's four nodes hardcode
+   `ros::init(..., "lio_sam")` in source and rely on `roslaunch`'s automatic per-node name
+   remapping; plain `rosrun` calls (this project's convention, no `roslaunch`) collided and
+   evicted each other from the ROS master. Fixed with explicit `__name:=` remaps in
+   `scripts/run_lio_sam.sh` — a real bug, not a config issue.
+3. **Baseline run on exp14 diverges catastrophically**: ATE trans RMSE 349 m, rot RMSE
+   124.7 deg (run `20260915T214917Z_lio_sam_exp14`, decision `investigate`), with 36 "Large
+   velocity, reset IMU-preintegration!" warnings in the log — a real estimator failure, not a
+   normal integration gap.
+4. **8-trial Bayesian sweep** (wide ranges, phase-1 skipped, sweep `udrqijbp`) over IMU
+   noise/leaf-size/keyframe params: translation RMSE varies hugely across trials (7.9 m to
+   2877 m), but **rotation RMSE stays 100-170 degrees in every single trial** with no visible
+   trend against any swept param. No trial beats the baseline on both metrics — config stays
+   unchanged (frozen = baseline), matching FAST-LIO2's own "no trial beats baseline on both"
+   precedent, just far more extreme here.
+5. **Held-out evaluation on exp16 and exp18** (frozen config, unchanged): both also
+   catastrophically diverge (exp16: ATE trans RMSE 2297 m, rot RMSE 141.7 deg, status
+   incomplete; exp18: ATE trans RMSE 286.5 m, rot RMSE 147.2 deg, status incomplete) — the
+   same rotation-failure pattern, a third time, on different sequences.
+
+**Diagnosis (not yet confirmed — the next action item):** the total absence of any trend in
+rotation RMSE across 9 different parameter configurations and 3 different sequences points at
+something the sweep's params can't reach — most plausibly the Madgwick orientation adapter's
+accel-based tilt correction, which assumes near-static conditions to treat the accelerometer
+as a gravity reference. This handheld, fast-moving rig genuinely violates that assumption
+during motion, and the resulting bad roll/pitch feeds into `mapOptmization`'s pose graph via
+`imuRPYWeight`. **This is exactly the failure mode phase-1 manual/hypothesis-driven
+investigation exists to catch before a sweep** — its absence here (a decision confirmed with
+the user this session) has a direct, now-visible cost.
+
+**Next action for whoever picks this up:**
+1. Root-cause the rotation failure — start by disabling the Madgwick adapter's influence
+   (e.g. temporarily zero `imuRPYWeight` or feed a fixed identity quaternion) and see if
+   rotation RMSE improves; if it does, that confirms the adapter as the cause and the real fix
+   is either a better filter (a proper EKF-based AHRS, or accepting that a lightweight
+   complementary/Madgwick filter can't handle this rig's dynamics) or reducing its influence
+   on the pose graph. If disabling it does *not* fix rotation, look elsewhere (extrinsics,
+   `Horizon_SCAN` mismatch degrading features — both flagged as unverified assumptions in
+   `docs/methods.md`).
+2. Once fixed, this method still needs the phase-1 manual tuning it skipped, then a proper
+   phase-2 sweep bounded by that, before its results can be trusted for cross-method
+   comparison — treat the current sweep/held-out results as informative about the bug, not as
+   this method's real performance.
+3. Only then: merge to `main` (confirm with the user first, per this repo's convention).
 
 ## Benchmark protocol
 
@@ -163,16 +187,17 @@ integration decisions), journal (chronological experiment log) |
 ## Next steps
 
 1. ~~Foundation~~, ~~FAST-LIO2 baseline/tuning/held-out eval~~ — done, see above.
-2. **LIO-SAM integration** — see the milestone plan above. Start with the orientation decision.
+2. **LIO-SAM: root-cause the rotation failure** — see "LIO-SAM: status and open issue" above.
+   Not mergeable until fixed; not usable for cross-method comparison until then either.
 3. Add GLIM, DLIO, original FAST-LIO, RTAB-Map ICP+IMU through the same interface. Resolve
    LOAM's implementation ambiguity or drop it with a stated reason (`docs/methods.md`
    "Exclusions" section — currently empty).
-4. Once ≥2 methods have frozen configs and held-out results: first cross-method comparison,
-   `results/`, `lio-bench report`.
+4. Once ≥2 methods have frozen configs and trustworthy held-out results: first cross-method
+   comparison, `results/`, `lio-bench report`.
 
-Ask only for information that materially blocks the next action (LIO-SAM orientation adapter
-choice is the one live decision above). Do not claim benchmark rankings before ≥2 methods have
-real runs.
+Ask only for information that materially blocks the next action. Do not claim benchmark
+rankings before ≥2 methods have real, trustworthy runs — LIO-SAM's current numbers reflect an
+unresolved bug, not the method's actual performance.
 
 ## Suggested skills
 

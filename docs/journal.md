@@ -265,6 +265,60 @@ lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
   keep" precedent). The rotation failure is flagged **open/investigate**, not resolved, ahead
   of held-out evaluation below.
 
+### 20260915T221224Z_lio_sam_exp16 (held-out)
+- **Method / sequence / split:** lio_sam / exp16 / heldout
+- **Parent:** `20260915T214917Z_lio_sam_exp14` (frozen config, sweep found no improvement)
+- **Hypothesis:** Held-out evaluation of the frozen config (unchanged since the sweep beat
+  baseline on neither metric). No changes made in response to this result, per
+  `docs/protocol.md` §6.
+- **Change:** none — held-out evaluation, config frozen.
+- **Config hash:** `de4e1512999fd9c3c858926d26019dfb6cb28b1c0ef53f2ba55b0ff52ccf4cbe` (identical
+  to the baseline's, confirming the config really is unchanged)
+- **Result:** status **incomplete**, coverage only 83.7% (1674/2001). ATE trans RMSE
+  **2297.30 m**, median 1402.54 m, p95 4521.68 m; ATE rot RMSE **141.66 deg**. RPE 1s trans
+  RMSE 759.83 m / rot 71.31 deg; RPE 10s trans RMSE 2215.87 m / rot 97.24 deg.
+- **Interpretation:** Catastrophic divergence, consistent with and worse than the exp14
+  baseline and every sweep trial — the same systemic rotation failure (100+ deg RMSE
+  regardless of config) flagged in the sweep entry above as most plausibly the Madgwick
+  orientation adapter under this rig's fast handheld motion, not something a parameter
+  search over LIO-SAM's own noise/leaf-size/keyframe params can fix. Not tuned around per
+  protocol.
+- **Decision:** investigate
+
+### 20260915T221224Z_lio_sam_exp18 (held-out)
+- **Method / sequence / split:** lio_sam / exp18 / heldout
+- **Parent:** `20260915T214917Z_lio_sam_exp14` (frozen config, sweep found no improvement)
+- **Hypothesis:** Held-out evaluation of the frozen config. No changes made in response to
+  this result, per `docs/protocol.md` §6.
+- **Change:** none — held-out evaluation, config frozen.
+- **Config hash:** `de4e1512999fd9c3c858926d26019dfb6cb28b1c0ef53f2ba55b0ff52ccf4cbe`
+- **Result:** status **incomplete**, coverage only 78.5% (619/789). ATE trans RMSE
+  **286.51 m**, median 102.38 m, p95 785.28 m; ATE rot RMSE **147.20 deg**. RPE 1s trans
+  RMSE 128.04 m / rot 54.93 deg; RPE 10s trans RMSE 313.82 m / rot 86.94 deg.
+- **Interpretation:** Same systemic rotation failure as exp14 and exp16 — every LIO-SAM run
+  in this integration, baseline, all 8 sweep trials, and both held-out sequences, shows
+  rotation RMSE well over 100 degrees. This consistency across three different sequences and
+  9 different parameter configurations makes a structural cause (most likely the orientation
+  adapter, see the sweep entry) far more likely than sequence-specific bad luck.
+- **Decision:** investigate
+
+### LIO-SAM integration summary
+Every run in this integration — the exp14 baseline, all 8 sweep trials, and both held-out
+evaluations — shares the same catastrophic rotation failure (ATE rot RMSE 100-170 degrees
+regardless of config), while translation error varies with the sampled params. This is a
+genuine, unresolved integration problem, not a normal tuning gap or generalization gap like
+FAST-LIO2's. The most likely structural cause, not yet isolated: the Madgwick orientation
+adapter (`adapters/lio_sam/orientation_filter.py`) assumes near-static conditions to treat
+the accelerometer as a gravity reference for its tilt correction, an assumption this
+handheld, fast-moving rig genuinely violates during motion — feeding a corrupted roll/pitch
+into `mapOptmization`'s pose graph via `imuRPYWeight`. Root-causing this is exactly the kind
+of phase-1 manual/hypothesis-driven investigation `docs/protocol.md` §6.1 exists for; it was
+explicitly skipped for this method per the confirmed decision to go straight to a wide
+Bayesian sweep, and its absence is the direct, now-visible cost of that choice. This
+integration should not be presented as a working baseline for cross-method comparison until
+that root cause is found and fixed — see `docs/methods.md` "LIO-SAM integration" and
+`HANDOFF.md` for the next agent.
+
 ### Map capture repeats (`_mapcapture`, 20260915T1905-1907Z) — pcd_save_en, rate 1.0, no sim-time
 - **Method / sequence / split:** fast_lio2 / exp14+exp16+exp18 / tune+heldout
 - **Parents:** `20260915T133833Z_fast_lio2_exp14`, `20260915T152627Z_fast_lio2_exp14`,
