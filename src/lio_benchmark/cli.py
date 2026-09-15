@@ -220,6 +220,24 @@ def cmd_run_close(args) -> int:
     return 0
 
 
+def cmd_view(args) -> int:
+    import open3d as o3d
+    pcd_path = Path(args.target)
+    if pcd_path.suffix != ".pcd":
+        pcd_path = paths.runs_root() / args.target / "map.pcd"  # bare run_id
+    if not pcd_path.exists():
+        print(f"error: not found: {pcd_path}", file=sys.stderr)
+        return 1
+
+    print(f"loading {pcd_path} ({pcd_path.stat().st_size / 1e6:.0f} MB)...")
+    pcd = o3d.io.read_point_cloud(str(pcd_path))
+    if args.voxel > 0:
+        pcd = pcd.voxel_down_sample(args.voxel)
+    print(f"{len(pcd.points):,} points")
+    o3d.visualization.draw_geometries([pcd], window_name=str(pcd_path))
+    return 0
+
+
 def cmd_log(args) -> int:
     from .tracking import log_to_wandb
     try:
@@ -316,6 +334,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", help="default: $WANDB_PROJECT or .env, else 'lio-benchmark'")
     p.add_argument("--entity", help="default: $WANDB_ENTITY or .env, else your default entity")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("view", help="open a run's map.pcd in Open3D's interactive viewer")
+    p.add_argument("target", help="run_id (resolves to runs/<id>/map.pcd) or a direct .pcd path")
+    p.add_argument("--voxel", type=float, default=0.0, help="downsample voxel size in m, e.g. 0.05")
+    p.set_defaults(func=cmd_view)
     return ap
 
 
