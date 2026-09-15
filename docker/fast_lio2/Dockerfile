@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git build-essential cmake \
         ros-noetic-pcl-ros ros-noetic-pcl-conversions ros-noetic-tf \
         ros-noetic-message-generation ros-noetic-rosbag ros-noetic-eigen-conversions \
-        libeigen3-dev libpcl-dev python3-catkin-tools \
+        libeigen3-dev libpcl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /catkin_ws/src

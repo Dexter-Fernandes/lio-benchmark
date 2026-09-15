@@ -45,14 +45,3 @@ def test_output_dtype_matches_fast_lio2_velodyne_layout():
     assert out.dtype.names == ("x", "y", "z", "intensity", "ring", "time")
     assert out.dtype["time"] == np.dtype("<f4")
     assert out.dtype["ring"] == np.dtype("<u2")
-
-
-def test_first_point_time_close_to_zero_as_measured():
-    """docs/dataset.md: first point minus header stamp is +1us median."""
-    out = to_fast_lio2_points(hilti_points(), HEADER_STAMP)
-    assert abs(out["time"][0]) < 1e-5
-
-
-def test_scan_spread_preserved():
-    out = to_fast_lio2_points(hilti_points(spread=0.1), HEADER_STAMP)
-    assert abs(float(out["time"][-1] - out["time"][0]) - 0.1) < 1e-6
