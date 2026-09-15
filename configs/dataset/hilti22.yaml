@@ -39,7 +39,18 @@ imu_intrinsics:              # verbatim from lidar_calibration.yaml
   bias_g: [-0.0015351229643790084, -0.0013449146576507546, 0.00030127855524786183]
   gravity: [0.01165152782783894, 9.804989173462031, -0.008749296634685332]
 
-# Filled from `lio-bench inspect` (see docs/dataset.md). Until then these are ranger-lio's
-# exp14 measurements (2026-09-11) and are marked unverified.
+# Measured by `lio-bench inspect` on 2026-09-15 (reports: <data root>/_provenance/inspect/).
+# Identical on exp14, exp16 and exp18 unless a per-sequence value is given.
 measured:
-  status: unverified-from-ranger-lio
+  status: verified-all-sequences
+  lidar_rate_hz: 10.00
+  points_per_scan_median: {exp14: 60948, exp16: 59477, exp18: 58934}
+  point_time: {field: timestamp, unit: seconds_absolute, first_point_minus_header_s: 1.0e-6, scan_spread_s: 0.100}
+  ring_range: [0, 31]
+  range_m_p01: {exp14: 0.20, exp16: 0.20, exp18: 0.17}
+  range_m_median: {exp14: 1.10, exp16: 0.90, exp18: 0.82}
+  imu_rate_hz: 399.2
+  imu_orientation: all_zero_not_flagged   # quaternion (0,0,0,0), orientation_covariance[0] = 0
+  imu_up_axis_at_start: -z                # at-rest specific force ~ (0.17, 0.0-0.16, -9.66) m/s^2
+  bag_log_time_equals_header_stamp: true  # |log - header| <= 0.24 us
+  ground_truth_quaternion_order: xyzw     # gravity check 0.65 / 1.32 / 4.66 deg vs 91 / 120 / 60 deg for wxyz

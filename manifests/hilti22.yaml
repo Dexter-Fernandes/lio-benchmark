@@ -107,21 +107,21 @@ files:
 sequences:
   exp14:
     name: exp14_basement_2
-    environment: Basement 2 (Sheldonian Theatre)
+    environment: Basement 2 (Sheldonian Theatre; official difficulty Medium)
     bag: rosbags/exp14_basement_2.bag
     rosbag2: rosbag2/exp14_basement_2        # derived, see _provenance/conversions/
     ground_truth_dense: ground_truth/exp14_basement_2_imu.txt
     ground_truth_sparse: ground_truth/exp14_basement_2_imu_3dof.txt
   exp16:
     name: exp16_attic_to_upper_gallery_2
-    environment: Attic to Upper Gallery 2 (Sheldonian Theatre)
+    environment: Attic to Upper Gallery 2 (Sheldonian Theatre; official difficulty Hard)
     bag: rosbags/exp16_attic_to_upper_gallery_2.bag
     rosbag2: rosbag2/exp16_attic_to_upper_gallery_2
     ground_truth_dense: ground_truth/exp16_attic_to_upper_gallery_2_imu.txt
     ground_truth_sparse: ground_truth/exp16_attic_to_upper_gallery_2_imu_3dof.txt
   exp18:
     name: exp18_corridor_lower_gallery_2
-    environment: Corridor Lower Gallery 2 (Sheldonian Theatre)
+    environment: Corridor Lower Gallery 2 (Sheldonian Theatre; official difficulty Hard)
     bag: rosbags/exp18_corridor_lower_gallery_2.bag
     rosbag2: rosbag2/exp18_corridor_lower_gallery_2
     ground_truth_dense: ground_truth/exp18_corridor_lower_gallery_2_imu.txt
