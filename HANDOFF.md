@@ -1,49 +1,75 @@
 # lio-benchmark — agent handoff
 
-Prepared: 14 September 2026. Updated: 15 September 2026. Status: foundation scaffolded and all selected data downloaded, verified, converted and inspected. **No odometry method is integrated and there are no benchmark results.**
+Prepared: 14 September 2026. Updated: 15 September 2026. Status: foundation done, **FAST-LIO2
+fully integrated, tuned and evaluated held-out**, merged to `main`. LIO-SAM is next.
 
 ## Goal and confirmed decisions
 
-Build an interview portfolio project comparing LiDAR-inertial odometry methods on Hilti–Oxford 2022. Demonstrate reproducible integration, manually guided tuning, held-out evaluation, computational profiling and failure analysis.
+Build an interview portfolio project comparing LiDAR-inertial odometry methods on Hilti–Oxford 2022. Demonstrate reproducible integration, tuning (manual, then automated search once a manual phase bounds the search region), held-out evaluation, and failure analysis.
 
-- Create/use a **new repository named `lio-benchmark`**, not the existing `ranger-lio` project. Remote: `https://github.com/Dexter-Fernandes/lio-benchmark.git` (origin). Work is on the local branch `scaffold/foundation`, which has **not been pushed**.
-- Tune on **exp14** and evaluate on other sequences with 6-DoF reference trajectories.
-- Use **devcontainers** for execution and **Weights & Biases** for experiment tracking.
-- Experiments are **manually guided**, not automated hyperparameter sweeps.
-- Create scripts to download all necessary selected data, calibration and reference trajectories.
-- User requested LOAM, LIO-SAM, GLIM, FAST-LIO, FAST-LIO2, RTAB-Map and additional applicable methods. Explain exclusions and distinguish variants accurately.
+- Repo: `https://github.com/Dexter-Fernandes/lio-benchmark.git` (origin). Work happens on
+  `feat/<method>-integration` branches, fast-forward merged into `main` when done (confirm with
+  the user before merging/pushing).
+- Tune on **exp14**; hold out **exp16, exp18** (see [docs/protocol.md](docs/protocol.md) §2).
+- Devcontainers for execution, Weights & Biases for tracking (**online by default** now — see
+  below, this changed from the original "offline first" plan).
+- Tuning is two-phase (`docs/protocol.md` §6): manual/hypothesis-driven first, then an
+  automated (Bayesian) search once phase 1 has bounded a sensible region. Not a blind sweep
+  from upstream defaults.
+- Methods requested: LOAM, LIO-SAM, GLIM, FAST-LIO, FAST-LIO2, RTAB-Map and other applicable
+  methods. Explain exclusions and distinguish variants accurately (`docs/methods.md`).
 - User delegated metric recommendations to the assistant.
-- A four-week target was mentioned earlier but is **not confirmed** for this project.
-
-Suggested repository description: Reproducible LiDAR-inertial odometry benchmarking on Hilti–Oxford, with containerised pipelines, W&B experiment tracking, and held-out trajectory evaluation.
 
 ## Current state (15 September 2026)
 
-Done on branch `scaffold/foundation` (see README.md for commands):
+**Foundation** (from the original `scaffold/foundation` branch, now in `main`): `lio-bench` CLI,
+tools image + devcontainer, manifest, verified/converted/inspected Hilti-Oxford data for
+exp14/exp16/exp18, the evaluator, run-record system. See README.md for commands; unchanged in
+substance since the last handoff, so not repeated here in full — read `docs/dataset.md` for the
+measured sensor facts (GT quaternion order, IMU orientation validity, per-point timestamp
+format, extrinsics) that **every** method integration needs.
 
-- **Python project** (`uv`, Python 3.11) with the `lio-bench` CLI, and the **tools image** `docker/tools/Dockerfile` (base and uv pinned by digest) with its devcontainer `.devcontainer/tools/`. `scripts/in-tools.sh` runs commands in the image and mounts data read-only except for data-writing commands. 60 tests pass on the host and in the container.
-- **Manifest** `manifests/hilti22.yaml`: HF revision `e62017f9…`, sizes and published hashes (LFS SHA-256 or git blob SHA-1, taken from the HF API, none invented), licence, citation, groups and split. The Sheldonian reference scan and CAD files are opt-in groups and have not been downloaded.
-- **Data** at `LIO_DATA_ROOT=/home/dexter/data/hilti22`, the same layout ranger-lio uses:
-  - exp14, exp16 and exp18 ROS 1 bags, `imu_noise_calibration.bag`, ground truth and calibration files, all hash-verified (`_provenance/verified.json`).
-  - exp14's MCAP was pre-existing (made by ranger-lio). exp16 and exp18 MCAPs were produced by `lio-bench data convert`. All three passed the equivalence check (`_provenance/conversions/`).
-- **Inspection reports** for all three sequences (`_provenance/inspect/`), summarised in `docs/dataset.md`.
-- **Evaluator** (`src/lio_benchmark/evaluation.py`): gap-aware association, SE(3) Umeyama with no scale, ATE, RPE at 1 s and 10 s, control-point errors, coverage and status. It cross-checks against evo and was exercised end to end on real exp14 ground truth, including the LiDAR-to-IMU frame conversion.
-- **Run records and W&B** (`tracking.py`; `lio-bench run init|close`, `eval --run-dir`, `log`): local-first, W&B offline by default. Tested offline without credentials.
-- **Docs:** `docs/protocol.md` (normative), `docs/dataset.md`, `docs/methods.md`, `docs/journal.md` (template, no entries).
+**FAST-LIO2: done, merged to `main`.** This is the reference integration for every method after
+it — read `docs/methods.md`'s "FAST-LIO2 integration" section and `scripts/run_fast_lio2.sh`
+before starting LIO-SAM; the pattern (adapter, config, run wrapper, tuning, held-out eval, map
+artifacts) repeats with method-specific changes only. Summary:
 
-Facts settled by measurement (details in docs/dataset.md):
-- **GT quaternions** are (x, y, z, w) in a z-up world. The gravity check gives 0.65–4.7° for that reading versus 60–120° for (w, x, y, z). The 4.7° on exp18 is unexplained; see docs/dataset.md.
-- **IMU orientation is all zeros, with `orientation_covariance[0] = 0`** (not flagged as absent). LIO-SAM needs a documented sensor-only orientation adapter or a named 6-axis derivative.
-- **LiDAR per-point `timestamp`** is float64 absolute epoch seconds; the first point equals the header stamp and each scan spans 0.1 s. `ring` is u16 in 0–31 and point_step is 48.
-- **Log time equals header stamp** in the bags, so the recording carries no receive-time or latency information.
-- **Dense GT has gaps** (up to 1.3 s on exp18). exp18's dense GT ends 22.6 s before the sensors stop, and one exp18 control point lies outside the dense span.
-- **Difficulty:** the official page rates exp14 Medium and exp16/exp18 Hard.
+- `docker/fast_lio2/Dockerfile` + `.devcontainer/fast_lio2/`: ROS Noetic, `hku-mars/FAST_LIO`
+  pinned at `7cc4175`, base image pinned by digest.
+- `adapters/fast_lio2/`: point-time adapter (absolute epoch `timestamp` → FAST-LIO2's relative
+  `time` field), unit-tested in `tests/test_adapters.py`; a `/Odometry` → TUM exporter.
+- `configs/fast_lio2/hilti22.yaml`: frozen, tuned config (measured IMU noise covariance,
+  measured registration voxel size). `scripts/fast_lio2_candidate.py` generates dotted-override
+  candidates for tuning attempts; reusable as-is for any method's config.
+- `scripts/run_fast_lio2.sh`: launch/readiness/timeout/shutdown wrapper, exports
+  trajectory.tum + map.pcd. **Read this before writing a LIO-SAM equivalent** — it has two
+  non-obvious fixes worth not re-discovering: (1) `filter_size_surf`/`filter_size_map` are
+  flat top-level rosparams, not nested — check each method's actual `nh.param()` calls rather
+  than assuming config nesting from a launch file's XML structure; (2) never use
+  `rosbag play --clock`/`use_sim_time` with a node whose shutdown-save logic runs inside
+  `ros::Rate::sleep()` — sim time stops advancing the instant bag playback ends, and the node
+  hangs forever waiting on `/clock`. Use wall-clock ROS time; every method here keys off
+  message `header.stamp`, never `ros::Time::now()`, so this costs nothing.
+- Tuned on exp14 (`docs/journal.md`): measured IMU noise covariance (kept), measured
+  registration voxel size 0.2 m (kept), a 15-trial Bayesian sweep over the phase-1-bounded
+  region (no improvement, negative result — config unchanged).
+- Held out on exp16 (catastrophic divergence starting ~t=170-180s, open failure-analysis case,
+  root cause not yet investigated) and exp18 (normal generalization gap).
+- Map artifacts (`map.pcd`/`map.png`) generated per run; `lio-bench view <run_id>` / `--traj`
+  visualizes them (GLFW/Wayland interactive viewer is broken on this user's desktop — `--png`
+  is the reliable fallback, always available).
 
-Not done: no method images, no adapters, no runs, no W&B entity or project, nothing pushed. Do not infer that the next agent's filesystem is the user's laptop.
+**W&B**: entity is the user's default (`retro.aspect520@gmail.com`'s account), project
+`lio-benchmark`. `WANDB_MODE` defaults to **online** now (not offline as originally planned) —
+every run lands on the dashboard automatically. `scripts/wandb_setup.sh` does one-time login.
+`lio-bench report` builds/updates a saved W&B Report comparing every logged run.
+
+Not done: LIO-SAM, GLIM, DLIO, original FAST-LIO, RTAB-Map, LOAM. No cross-method comparison
+yet (only one method has results).
 
 ## Hardware and execution constraints
 
-User-reported machine:
+User-reported machine (unchanged):
 
 | Component | Specification |
 |---|---|
@@ -52,188 +78,108 @@ User-reported machine:
 | Kernel | Linux 7.0.0-31-generic |
 | CPU | Intel Core i7-7500U, 2 cores / 4 threads |
 | GPUs | NVIDIA GeForce 940MX and Intel HD Graphics 620 |
-| RAM | 11.55 GiB total; 7.14 GiB in use in supplied snapshot |
+| RAM | 11.55 GiB total |
 | Swap | 16.12 GiB |
-| Root partition | 76.35 GiB total; approximately 54 GiB free |
-| Home partition | 209.91 GiB total; approximately 111 GiB free |
-| Desktop | KDE Plasma / Wayland; Bash shell |
+| Root partition | ~54 GiB free (build cache) |
+| Home partition | ~111 GiB free (data, out of Git) |
+| Desktop | KDE Plasma / Wayland |
 
-Recommended defaults: one headless experiment at a time; CPU-only GLIM initially; one or two compilation jobs. Keep data/results on a configurable path under the home partition. Monitor container build cache on root separately. Do not assume the 940MX supports the selected CUDA environment or that any method runs in real time. Record thread limits and resource use.
+One headless experiment at a time; CPU-only for GLIM; one or two compile jobs. FAST-LIO2 ran
+fine on this hardware at 1.0x real-time playback — a reasonable default to try for LIO-SAM too,
+falling back to slower playback only if it overloads.
 
-## Dataset plan
+## LIO-SAM: next milestone
 
-Use **Hilti–Oxford 2022**, not another Hilti challenge edition.
+Follow the exact FAST-LIO2 pattern (`docker/fast_lio2/`, `adapters/fast_lio2/`,
+`configs/fast_lio2/`, `scripts/run_fast_lio2.sh`, `docs/methods.md`'s FAST-LIO2 section) with a
+new `docker/lio_sam/`, `adapters/lio_sam/`, `configs/lio_sam/`, `scripts/run_lio_sam.sh`. Start
+a new branch `feat/lio-sam-integration`.
 
-| Sequence | Proposed purpose | Environment | Full bag size, approximate |
-|---|---|---|---|
-| exp14 | Development and manual tuning | Basement 2 | 6 GB |
-| exp16 | Held-out evaluation | Attic to Upper Gallery 2 | 15 GB |
-| exp18 | Held-out evaluation | Corridor Lower Gallery 2 | 8 GB |
+Method-specific work, in order:
 
-The official page lists 6-DoF reference trajectories for these three sequences. exp16/exp18 are assistant recommendations consistent with the user's requested split. Many other sequences have sparse position-only ground truth and cannot support rotational error evaluation.
-
-- Sensor platform includes Hesai PandarXT-32, cameras and IMU. Point clouds are PointCloud2 with individual point timing information.
-- Ground truth is expressed in the **IMU frame**. Transform estimator outputs into that physical frame before evaluation.
-- Download calibration and IMU noise resources separately.
-- Inspect actual topics, point field types, timing units, ring information, IMU orientation validity, quaternion conventions and reference coverage before integration. **Done for all three sequences** (`lio-bench inspect`; see docs/dataset.md).
-- Do not assume dense 6-DoF reference trajectories have the same provenance or accuracy as surveyed sparse position references. Document the distinction.
-- Select explicit files with resumable downloads and verified integrity. Record source revisions, file sizes and hashes; never invent checksums.
-- Three full bags total approximately 29 GB. Allow extra space for conversions and outputs. Keep data out of Git and preserve dataset attribution/licensing.
-- Freeze configurations after exp14 tuning. Do not select parameters using exp16/exp18 results. These are held-out sequences within one dataset, not cross-sensor generalisation evidence.
-
-Sources: [official dataset](https://hilti-challenge.com/dataset-2022), [official hosting](https://huggingface.co/datasets/Hilti-Research/hilti-slam-challenge-2022).
-
-## Methods and unresolved compatibility
-
-| Method | Proposed treatment |
-|---|---|
-| FAST-LIO2 | Core tightly coupled LIO; recommended first integration |
-| FAST-LIO | Separate verified original implementation, pinned to its own revision |
-| LIO-SAM | Core LIO; disable GPS and loop closure for the primary comparison. Bag orientation is **all zero** (measured), so an adapter or a 6-axis derivative is required |
-| GLIM | CPU LiDAR-inertial odometry configuration; global mapping evaluated separately |
-| DLIO | Recommended addition, not explicitly confirmed by user; upstream supports Hesai and 6-axis IMUs |
-| RTAB-Map ICP + IMU | Explicitly labelled IMU-assisted ICP baseline; document actual IMU use |
-| LOAM | Conditional on selected implementation and actual IMU integration |
-
-Important distinctions:
-
-- FAST-LIO2 with feature extraction enabled is **not original FAST-LIO**. Version differences include map management and other implementation changes.
-- LOAM is ambiguous: original-style implementations can use IMU assistance; some derivatives are LiDAR-only. Pin and identify the actual algorithm.
-- RTAB-Map is a framework supporting several odometry engines. Its LIO-SAM wrapper is not an independent estimator. Its own ICP + IMU configuration is the intended additional baseline; do not call it tightly coupled LIO without evidence.
-- LIO-SAM upstream documents orientation estimates / a 9-axis IMU expectation. Inspect bag fields. If necessary, use a documented sensor-only orientation adapter or explicitly named 6-axis-compatible derivative such as LIORF. Do not silently label a derivative as upstream LIO-SAM.
-- Never feed ground truth into initialisation, orientation estimation, deskewing or the estimator.
-- Verify per-point time conversion and extrinsic transform direction; do not hide integration errors by tuning noise or registration settings.
-
-References: [FAST-LIO](https://github.com/hku-mars/FAST_LIO), [FAST-LIO2 paper](https://arxiv.org/abs/2107.06829), [LIO-SAM](https://github.com/TixiaoShan/LIO-SAM), [GLIM](https://github.com/koide3/glim), [DLIO](https://github.com/vectr-ucla/direct_lidar_inertial_odometry), [RTAB-Map odometry](https://github.com/introlab/rtabmap/blob/master/corelib/src/Odometry.cpp), [LOAM candidate](https://github.com/laboshinl/loam_velodyne).
-
-## Proposed container environments
-
-These are **design targets, not validated image tags or builds**. Recheck upstream requirements and pin working revisions/digests.
-
-| Image role | Proposed base environment |
-|---|---|
-| FAST-LIO2 | Ubuntu 20.04 / ROS Noetic |
-| Original FAST-LIO | Supported environment of selected original implementation |
-| LIO-SAM | Ubuntu 20.04 / ROS Noetic; separately pinned GTSAM |
-| DLIO | Ubuntu 20.04 / ROS Noetic |
-| GLIM CPU | Ubuntu 22.04 / ROS 2 Humble; no CUDA |
-| RTAB-Map | Ubuntu 22.04 / ROS 2 Humble |
-| Evaluation/downloader | Python 3.11 slim |
-| LOAM | Determined by chosen implementation |
-
-Share suitable base layers but isolate conflicting dependencies. Support devcontainer development and unattended runs. Mount data read-only and results separately. Make GUI forwarding optional. Use original ROS1 bags for ROS1 methods and verified converted inputs for ROS2 methods; preserve timing/point fields and verify message counts. No live ROS bridge is assumed necessary.
-
-GLIM documents CPU installation on 22.04/Humble; DLIO documents 20.04/Noetic. LIO-SAM's bundled Docker instructions describe older Kinetic, so a Noetic build needs validation. [GLIM installation](https://koide3.github.io/glim/installation.html).
+1. **Resolve the orientation problem before anything else** (`docs/methods.md` point 1,
+   `docs/dataset.md`). Hilti's `/alphasense/imu` has an all-zero orientation quaternion with
+   `orientation_covariance[0] = 0` — not flagged absent, so LIO-SAM would silently consume a
+   garbage quaternion if it reads `msg.orientation`. Check upstream (`TixiaoShan/LIO-SAM`)
+   source for exactly where/whether it reads `orientation` (IMU preintegration and the
+   `imuHandler` in particular). Two options, per HANDOFF's original plan:
+   - a documented, sensor-only orientation adapter (complementary or Madgwick filter on the
+     same 6-axis IMU, parameters recorded, never touching ground truth), or
+   - an explicitly named 6-axis-compatible derivative (e.g. LIORF) — never silently relabel
+     a derivative as upstream LIO-SAM.
+   This decision gates the rest of the integration; don't start the Dockerfile before it's made.
+2. **Pin the source and base image.** LIO-SAM's bundled Docker instructions target Kinetic; a
+   Noetic build needs its own validation (build GTSAM, PCL, etc. against Noetic — check
+   upstream issues/forks for a known-working Noetic combination before improvising one).
+3. **Point-cloud adapter.** LIO-SAM's `imageProjection.cpp` reads a per-point relative time
+   field (check its exact name/type/units against Hilti's absolute `timestamp`, same shape of
+   problem as `adapters/fast_lio2/pointcloud_adapter.py` — reuse the same unit-testing pattern
+   against real scans in `tests/test_adapters.py`).
+4. **Extrinsics.** `configs/dataset/hilti22.yaml`'s `T_I_L` is the shared source of truth; check
+   LIO-SAM's own extrinsic convention (it typically wants `extrinsicRot`/`extrinsicTrans` as
+   `T_I_L` or `T_L_I` — verify against source, don't assume) with a known-answer test like
+   `frames.check_lidar_extrinsics`.
+5. **Config.** `configs/lio_sam/hilti22.yaml`, dataset-adapted baseline only (topics, units,
+   extrinsics, blind zone/min range from measured ranges — `docs/dataset.md`) — no tuning yet.
+   Disable GPS factor and loop closure for the primary online-odometry comparison
+   (`docs/protocol.md` §1).
+6. **Run wrapper** (`scripts/run_lio_sam.sh`): same shape as `run_fast_lio2.sh` — roscore,
+   adapter(s), an odometry→TUM exporter, the LIO-SAM node, readiness wait, timeout, SIGINT
+   shutdown if it saves anything on exit, trajectory + map export. Check whether LIO-SAM's
+   output topic publishes IMU or LiDAR body poses before choosing `lio-bench eval --frame`.
+7. **Baseline run** on exp14: `lio-bench run init` → run → `eval --frame ... --run-dir` →
+   `run close` → `log`. This is the first checkpoint — a working, dataset-adapted baseline,
+   not a tuned one. Journal it (`docs/journal.md`) same as the FAST-LIO2 baseline entry.
+8. Only after a verified baseline: phase-1 manual tuning (`docs/protocol.md` §6.1), then
+   phase-2 automated search only if phase 1 finds a sensible region (§6.2,
+   `scripts/fast_lio2_sweep.py` is a template — swap in LIO-SAM's config path and image).
+9. Freeze the config, evaluate exp16/exp18 held out, journal the results (don't tune on them).
 
 ## Benchmark protocol
 
-Primary comparison: **online odometry**, with loop closure, GPS, prior maps and offline refinement disabled. Retain each method's local estimation/mapping machinery. Save online poses as emitted; do not replace them with retrospectively optimised poses. Full-SLAM/global-refinement results may be a separate secondary comparison.
+Normative document: [docs/protocol.md](docs/protocol.md) — read it, don't re-derive it here.
+Covers: online-odometry scope, data split, frames/inputs, gap-aware metrics (ATE/RPE
+definitions, association, alignment, coverage), reliability/compute reporting, and the
+two-phase tuning process. `configs/eval/default.yaml` holds the frozen evaluation parameters;
+`src/lio_benchmark/evaluation.py` is the implementation.
 
-Compare a correctly dataset-adapted baseline against manually tuned configurations. Topics, units and supplied calibration must already be correct in both.
-
-| Measure | Recommended reporting |
-|---|---|
-| Position accuracy | ATE RMSE, median and p95 in metres; SE(3) alignment, no scale correction |
-| Local drift | Translational and rotational RPE; initially 1 s and 10 s intervals |
-| Reliability | Initialisation time, coverage, failures, resets, missing outputs |
-| Compute | Median/p95 processing time, total wall runtime, peak RAM |
-| Real-time behaviour | Backlog, dropped measurements and pose latency at 1x replay |
-| Map quality | Selected visual comparisons first; optional reference-map evaluation later |
-
-Specify timestamp association, evaluation frame, alignment, pose-pair selection and valid intervals. Never interpolate across large gaps. Report coverage with accuracy so failed partial trajectories cannot appear to win. Do not average incompatible metric definitions.
-
-For accuracy runs, use sufficiently slow playback to avoid overload while preserving original sensor timestamps. Verify complete processing and record playback rate. Separately test 1x real-time behaviour. Slow replay is not evidence of real-time capability. Measure latency with compatible clocks, not historical bag timestamps subtracted directly from current wall time. Document whether timing includes preprocessing, queues, registration and mapping.
-
-Reference: [evo metrics](https://github.com/MichaelGrupp/evo/wiki/Metrics).
-
-## Manually guided W&B workflow
-
-For each experiment record hypothesis, parent run, exact change, results, interpretation and keep/revert/investigate decision. Establish a complete baseline first; change one parameter family at a time. Repeat shortlisted configurations enough to identify meaningful variability. Record all attempts and tuning effort; equal effort has not been agreed and should not be claimed.
-
-Log method/source commit/patches; full resolved config and hash; container and dependency identities; dataset/calibration hashes; preprocessing; time range; hardware/thread settings; playback rate; seed if relevant; metrics; coverage/failure status; trajectory; plots/logs; selected map outputs. Preserve local JSON/CSV and offline logging so W&B credentials are not a prerequisite for development. W&B entity/project and credentials remain unspecified. Never commit secrets.
-
-## Deliverables and suggested structure
+## Deliverables and structure
 
 | Path | Purpose |
 |---|---|
-| README.md | Scope, setup, quick start, results and limitations |
-| HANDOFF.md | Continuation state |
-| .devcontainer/ | Per-method development configurations |
-| docker/ | Images and dependency pins |
-| manifests/ | Download files, hashes, revisions and dataset split |
-| configs/ | Baseline, experimental and frozen configurations |
-| adapters/ | Input conversion and method integration |
-| scripts/ | Download, inspect, run, evaluate, log and report |
-| src/lio_benchmark/ | Shared code if useful |
-| tests/ | Timing, transforms, conversion and evaluator correctness |
-| docs/ | Protocol, method notes, experiment journal and analysis |
-| results/ | Small curated publishable tables and plots |
-
-Required scripts/capabilities: selective resumable downloads with disk-space/integrity checks; sensor/calibration inspection; input preparation; isolated launch/readiness/timeout/shutdown; fresh estimator state; completion detection; common trajectory export; gap-aware evaluation; W&B/local logging; repeatable report generation.
-
-Meaningful tests: known rigid transforms, timestamp conversion, identity trajectory error, known perturbations, missing sections and incomplete-run detection. Avoid treating placeholder tests as evidence that a method works on real data.
-
-## .gitignore guidance already given
-
-Applied: the repository `.gitignore` now contains the entries below plus the standard Python template entries (caches, virtualenvs, build outputs).
-
-```gitignore
-# ROS / C++ build outputs
-build/
-devel/
-install/
-log/
-logs/
-CMakeFiles/
-CMakeCache.txt
-compile_commands.json
-
-# Data and generated maps
-data/
-datasets/
-*.bag
-*.bag.active
-*.db3
-*.mcap
-*.pcd
-*.ply
-*.e57
-
-# Local experiment outputs
-runs/
-outputs/
-wandb/
-
-# Credentials and local settings
-.env
-.env.*
-!.env.example
-```
-
-Keep devcontainer files, Dockerfiles, configs, manifests and curated results tracked. If small test fixtures need an ignored extension, add explicit exceptions rather than committing large datasets. Retain the Python template's standard cache/virtualenv exclusions.
+| README.md | Scope, setup, quick start, status |
+| HANDOFF.md | This file — continuation state |
+| .devcontainer/, docker/ | Per-method dev environments and images, one per method |
+| manifests/ | Dataset files, hashes, revisions, split |
+| configs/ | Per-method baseline/frozen configs; `configs/eval/` shared evaluation params |
+| adapters/ | Per-method input/output conversion, each with real unit tests |
+| scripts/ | Download, inspect, run, tune, evaluate, log, report — reuse across methods |
+| src/lio_benchmark/ | Shared library: manifest, download, evaluation, tracking, CLI |
+| tests/ | Hashing, download, manifest, frames, trajectory, evaluator, adapters, tracking |
+| docs/ | protocol (normative), dataset (measured facts), methods (per-method notes and
+integration decisions), journal (chronological experiment log) |
+| results/ | Curated publishable tables/plots (none yet — needs ≥2 methods) |
 
 ## Next steps
 
-1. ~~Inspect the workspace~~, ~~scaffold the repository, manifest and protocol~~, ~~download and inspect the data~~. All done on 15 September 2026.
-2. Review the `scaffold/foundation` branch with the user, then push it or merge it to `main` (ask first).
-3. **FAST-LIO2 baseline on exp14:**
-   - Build a pinned Noetic image in `docker/fast_lio2/` and `.devcontainer/fast_lio2/`.
-   - Write an input adapter in `adapters/` that converts the absolute per-point `timestamp` into the relative time field FAST-LIO2 expects, with unit tests on real scans.
-   - Take the extrinsic from `configs/dataset/hilti22.yaml`, with a known-answer check of FAST-LIO2's convention.
-   - Set minimum range and blind zone from the measured ranges.
-   - Wrap the run with launch, readiness, timeout and completion detection at slow playback.
-   - Export the trajectory to TUM, then `lio-bench run init` → `eval --frame imu|lidar --run-dir` → `run close` → `log`.
-4. Add DLIO, LIO-SAM (resolve the orientation adapter versus LIORF and name it explicitly) and GLIM through the same interface. Humble images may need `data convert --dst-version`. Resolve original FAST-LIO, RTAB-Map ICP+IMU and LOAM without silently dropping scope.
-5. Run the exp14 experiments, freeze configurations, evaluate exp16 and exp18, and publish reproducible results with limitations.
+1. ~~Foundation~~, ~~FAST-LIO2 baseline/tuning/held-out eval~~ — done, see above.
+2. **LIO-SAM integration** — see the milestone plan above. Start with the orientation decision.
+3. Add GLIM, DLIO, original FAST-LIO, RTAB-Map ICP+IMU through the same interface. Resolve
+   LOAM's implementation ambiguity or drop it with a stated reason (`docs/methods.md`
+   "Exclusions" section — currently empty).
+4. Once ≥2 methods have frozen configs and held-out results: first cross-method comparison,
+   `results/`, `lio-bench report`.
 
-The first milestone is one verified end-to-end baseline, not several partially working integrations. Ask only for unresolved information that materially blocks the next action. Remote URL/visibility, deadline, W&B identity and exact variants remain open; settled decisions do not need reconfirmation. Do not claim benchmark rankings before runs exist.
+Ask only for information that materially blocks the next action (LIO-SAM orientation adapter
+choice is the one live decision above). Do not claim benchmark rankings before ≥2 methods have
+real runs.
 
 ## Suggested skills
 
-- **handoff**: update this continuation document after substantive progress.
+- **handoff**: update this document after substantive progress (a method fully integrated and
+  merged, a protocol change, a milestone).
 - **domain-modeling**: if defining CONTEXT.md, terminology or architecture decision records.
-- **personal-context**: only if missing prior context materially affects work; the current plan is captured here.
-- **openai-library:library**: if delivering standalone files through ChatGPT; Git-backed project files should stay in the repository workflow.
-- **documents/pdf**: only if a formatted report is requested later.
 
-Read applicable repository AGENTS.md and skill instructions before acting. No multi-agent implementation has been requested; this handoff is for a fresh agent to continue.
+Read `docs/methods.md`, `docs/protocol.md` and `docs/journal.md` before acting — they carry
+the actual decisions and measured facts; this file is a pointer and a punch list, not the
+source of truth.

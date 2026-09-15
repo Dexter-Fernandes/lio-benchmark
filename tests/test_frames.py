@@ -69,3 +69,24 @@ def test_transform_body_matches_se3_per_pose(T_I_L):
         expected = SE3.from_xyzw(imu.q[k], imu.p[k]) * T_I_L
         np.testing.assert_allclose(lidar.p[k], expected.t, atol=1e-12)
         assert (Rotation.from_quat(lidar.q[k]).inv() * Rotation.from_matrix(expected.R)).magnitude() < 1e-9
+
+
+# --- LIO-SAM: extrinsic convention -------------------------------------------------------------
+# TixiaoShan/LIO-SAM's include/utility.h imuConverter() computes `acc = extrinsicRot * acc_imu`
+# and treats the result as the acceleration in the lidar/base_link-aligned frame (LIO-SAM assumes
+# lidarFrame == baselinkFrame). That means extrinsicRot rotates an IMU-frame vector INTO the
+# lidar frame -- i.e. it is T_L_I.R (== T_I_L.inverse().R), not T_I_L.R directly, despite
+# config/params.yaml's own comment calling it "T_lb (lidar -> imu)" (misleading naming, a known
+# source of confusion in LIO-SAM forks/issues). extrinsicTrans is consumed separately, only as a
+# translation-only lever-arm offset between the IMU-preintegration and lidar pose graph nodes
+# (src/imuPreintegration.cpp's imu2Lidar/lidar2Imu, both built with an *identity* rotation) --
+# so it must be T_L_I.t, the position of the lidar origin's counterpart already expressed in the
+# lidar-aligned frame, consistent with the same T_L_I used for extrinsicRot.
+def test_lio_sam_extrinsic_is_T_L_I_not_T_I_L(T_I_L):
+    T_L_I = T_I_L.inverse()
+    # A vector at the IMU's own +z axis should land at the lidar's -z after extrinsicRot,
+    # matching check_lidar_extrinsics' T_I_L convention run in reverse.
+    np.testing.assert_allclose(T_L_I.R @ [0, 0, 1.0], [0, 0, -1], atol=1e-6)
+    np.testing.assert_allclose(T_L_I.R @ [1.0, 0, 0], [0, -1.0, 0], atol=1e-6)
+    # extrinsicTrans is the lidar-aligned-frame lever arm, not the raw calibration translation.
+    assert not np.allclose(T_L_I.t, T_I_L.t)

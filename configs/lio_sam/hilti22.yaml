@@ -1,0 +1,132 @@
+# LIO-SAM baseline config for Hilti-Oxford 2022 (exp14/exp16/exp18), adapted from
+# TixiaoShan/LIO-SAM config/params.yaml at the pinned revision (docker/lio_sam/Dockerfile).
+#
+# Dataset-specific adaptations from docs/dataset.md and configs/dataset/hilti22.yaml, not
+# tuning:
+# - pointCloudTopic points at the adapter's republished topic (adapters/lio_sam/ros_node.py),
+#   carrying LIO-SAM's expected (x,y,z,intensity,ring,time) velodyne layout -- byte-identical
+#   to FAST-LIO2's, since LIO-SAM's VelodynePointXYZIRT is the same struct.
+# - imuTopic points at the Madgwick orientation adapter's output
+#   (adapters/lio_sam/imu_orientation_node.py), not the raw /alphasense/imu, because Hilti's
+#   raw orientation quaternion is all-zero and LIO-SAM's own imuConverter() (include/utility.h)
+#   calls ros::shutdown() on a near-zero-norm quaternion -- see docs/methods.md "LIO-SAM
+#   integration" for the filter, beta, and why this is a documented sensor-only adapter.
+# - N_SCAN: 32 (PandarXT-32 channel count). Horizon_SCAN: 1800, from the sensor's published
+#   ~0.2 deg azimuth resolution at 10 Hz (Hesai PandarXT-32 datasheet), consistent with the
+#   measured median 60948 points/scan (docs/dataset.md).
+# - lidarMinRange: 0.1m, below the measured p01 range (0.17-0.20m across exp14/16/18), same
+#   reasoning as FAST-LIO2's `blind` -- upstream's 1.0m default would discard real short-range
+#   returns from this handheld rig.
+# - extrinsicRot/extrinsicTrans/extrinsicRPY are T_L_I (IMU -> LiDAR), i.e.
+#   configs/dataset/hilti22.yaml's T_I_L *inverted* -- LIO-SAM's imuConverter() applies
+#   extrinsicRot to rotate IMU-frame accel/gyro vectors INTO the lidar/base_link-aligned frame
+#   (lidarFrame == baselinkFrame in this config), the opposite direction from what
+#   params.yaml's own "T_lb (lidar -> imu)" comment suggests -- verified against the actual
+#   `acc = extRot * acc` usage in include/utility.h, not assumed. See docs/methods.md point 5
+#   and tests/test_frames.py::test_lio_sam_extrinsic_is_T_L_I_not_T_I_L. extrinsicRPY is set
+#   equal to extrinsicRot since our synthesized orientation is computed directly in the same
+#   raw IMU frame as accel/gyro (no separate AHRS-frame offset to correct for).
+# - numberOfCores: 4, matching this machine's thread count (i7-7500U, 2c/4t) -- a hardware
+#   adaptation, not an accuracy tuning choice.
+# - GPS factor: no GPS topic is ever published in this benchmark (online-odometry scope,
+#   docs/protocol.md #1), so gpsQueue stays empty and addGPSFactor() (src/mapOptmization.cpp)
+#   is a no-op without needing an extra disable flag -- confirmed from source, not assumed.
+# - loopClosureEnableFlag: false (docs/protocol.md #1, hard requirement for the primary
+#   online-odometry comparison).
+#
+# Everything else (IMU noise covariances, feature/voxel leaf sizes, keyframe thresholds,
+# optimization iteration counts) is left at upstream defaults for this baseline -- phase-1
+# manual tuning is explicitly skipped for this method (confirmed decision, see
+# docs/journal.md), so these become the phase-2 Bayesian sweep's search parameters instead of
+# baseline edits. This is a deliberate departure from how FAST-LIO2 separated its baseline vs.
+# tuned config.
+
+lio_sam:
+
+  # Topics
+  pointCloudTopic: "/hesai/pandar/lio_sam"
+  imuTopic: "/alphasense/imu/oriented"
+  odomTopic: "odometry/imu"
+  gpsTopic: "odometry/gps"          # never published in this benchmark; GPS factor is a no-op
+
+  # Frames
+  lidarFrame: "base_link"
+  baselinkFrame: "base_link"
+  odometryFrame: "odom"
+  mapFrame: "map"
+
+  # GPS Settings -- irrelevant while gpsQueue stays empty, left at upstream defaults
+  useImuHeadingInitialization: true
+  useGpsElevation: false
+  gpsCovThreshold: 2.0
+  poseCovThreshold: 25.0
+
+  # Export settings
+  savePCD: true
+  savePCDDirectory: "/pcd_out/"     # mounted scratch dir; run_lio_sam.sh copies map.pcd out
+
+  # Sensor Settings
+  sensor: velodyne
+  N_SCAN: 32
+  Horizon_SCAN: 1800
+  downsampleRate: 1
+  lidarMinRange: 0.1
+  lidarMaxRange: 1000.0
+
+  # IMU Settings -- upstream defaults; noise covariances are phase-2 sweep parameters, not
+  # baseline edits (see header comment)
+  imuAccNoise: 3.9939570888238808e-03
+  imuGyrNoise: 1.5636343949698187e-03
+  imuAccBiasN: 6.4356659353532566e-05
+  imuGyrBiasN: 3.5640318696367613e-05
+  imuGravity: 9.80511
+  imuRPYWeight: 0.01
+
+  # Extrinsics: T_L_I (IMU -> LiDAR), derived from configs/dataset/hilti22.yaml's T_I_L
+  # inverted -- see header comment.
+  extrinsicTrans: [-0.00855, -0.001, 0.055]
+  extrinsicRot: [0.0, -1.0, 0.0,
+                 -1.0, 0.0, 0.0,
+                 0.0, 0.0, -1.0]
+  extrinsicRPY: [0.0, -1.0, 0.0,
+                 -1.0, 0.0, 0.0,
+                 0.0, 0.0, -1.0]
+
+  # LOAM feature threshold -- upstream defaults, deferred to sweep
+  edgeThreshold: 1.0
+  surfThreshold: 0.1
+  edgeFeatureMinValidNum: 10
+  surfFeatureMinValidNum: 100
+
+  # voxel filter params -- upstream defaults, deferred to sweep
+  odometrySurfLeafSize: 0.4
+  mappingCornerLeafSize: 0.2
+  mappingSurfLeafSize: 0.4
+
+  # robot motion constraint -- not a ground vehicle, leave unconstrained (upstream default)
+  z_tollerance: 1000
+  rotation_tollerance: 1000
+
+  # CPU Params
+  numberOfCores: 4                  # matches this machine's thread count (hardware adaptation)
+  mappingProcessInterval: 0.15
+
+  # Surrounding map -- upstream defaults, deferred to sweep
+  surroundingkeyframeAddingDistThreshold: 1.0
+  surroundingkeyframeAddingAngleThreshold: 0.2
+  surroundingKeyframeDensity: 2.0
+  surroundingKeyframeSearchRadius: 50.0
+
+  # Loop closure -- disabled, docs/protocol.md #1
+  loopClosureEnableFlag: false
+  loopClosureFrequency: 1.0
+  surroundingKeyframeSize: 50
+  historyKeyframeSearchRadius: 15.0
+  historyKeyframeSearchTimeDiff: 30.0
+  historyKeyframeSearchNum: 25
+  historyKeyframeFitnessScore: 0.3
+
+  # Visualization -- doesn't affect the estimate, upstream defaults
+  globalMapVisualizationSearchRadius: 1000.0
+  globalMapVisualizationPoseDensity: 10.0
+  globalMapVisualizationLeafSize: 1.0

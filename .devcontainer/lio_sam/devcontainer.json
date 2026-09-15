@@ -1,0 +1,16 @@
+{
+  // LIO-SAM (Ubuntu 20.04 / ROS Noetic). Requires LIO_DATA_ROOT set in the launching shell.
+  "name": "lio-benchmark lio_sam",
+  "build": {
+    "dockerfile": "../../docker/lio_sam/Dockerfile",
+    "context": "../.."
+  },
+  "workspaceFolder": "/workspaces/lio-benchmark",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/lio-benchmark,type=bind",
+  "mounts": [
+    "source=${localEnv:LIO_DATA_ROOT},target=/data/hilti22,type=bind,readonly",
+    "source=${localWorkspaceFolder}/runs,target=/runs,type=bind"
+  ],
+  "initializeCommand": "mkdir -p runs",
+  "overrideCommand": true
+}

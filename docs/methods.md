@@ -1,7 +1,8 @@
 # Methods
 
-FAST-LIO2 integration is in progress (`docker/fast_lio2/`, `adapters/fast_lio2/`); no other
-method is integrated yet. This page records scope decisions, the variants we mean, and
+FAST-LIO2 is fully integrated (`docker/fast_lio2/`, `adapters/fast_lio2/`), merged to `main`.
+LIO-SAM integration is in progress (`docker/lio_sam/`, `adapters/lio_sam/`). This page records
+scope decisions, the variants we mean, and
 the integration questions each method raises for this dataset. The measured input facts are
 in [dataset.md](dataset.md). Any claim about upstream behaviour below that is marked
 **verify** has not yet been checked against the pinned source.
@@ -10,9 +11,9 @@ in [dataset.md](dataset.md). Any claim about upstream behaviour below that is ma
 
 | Method | Role | Planned environment | Status |
 |---|---|---|---|
-| FAST-LIO2 | core tightly coupled LIO, **first integration** | Ubuntu 20.04 / ROS Noetic | integrating, see below |
+| FAST-LIO2 | core tightly coupled LIO, **first integration** | Ubuntu 20.04 / ROS Noetic | done, merged to `main` |
 | FAST-LIO (original) | separate implementation, pinned to its own revision | its supported environment | not started |
-| LIO-SAM | core LIO, GPS and loop closure disabled | Ubuntu 20.04 / Noetic, pinned GTSAM | not started; IMU orientation issue below |
+| LIO-SAM | core LIO, GPS and loop closure disabled | Ubuntu 20.04 / Noetic, pinned GTSAM | integrating, see below |
 | GLIM | CPU LiDAR-inertial odometry; global mapping only as secondary | Ubuntu 22.04 / ROS 2 Humble, no CUDA | not started |
 | DLIO | recommended addition (not yet confirmed by the project owner) | Ubuntu 20.04 / Noetic | not started |
 | RTAB-Map ICP + IMU | IMU-assisted ICP baseline | Ubuntu 22.04 / Humble | not started |
@@ -49,10 +50,16 @@ These come from `lio-bench inspect` and hold identically on exp14, exp16 and exp
    all-zero orientation quaternion with `orientation_covariance[0] = 0`, not the ROS
    "unknown" flag of −1. The BMI085 is a 6-axis IMU. Any method that reads
    `msg.orientation` gets an invalid quaternion without warning.
-   - **LIO-SAM:** use either (a) a documented, sensor-only orientation adapter (for example
-     a complementary or Madgwick filter on the same IMU, never ground truth, with its
-     parameters recorded), or (b) an explicitly named 6-axis derivative such as LIORF. A
-     derivative is never labelled "LIO-SAM".
+   - **LIO-SAM (resolved):** a documented, sensor-only Madgwick filter adapter
+     (`adapters/lio_sam/orientation_filter.py`, `imu_orientation_node.py`), never ground
+     truth. This is necessary, not precautionary: `TixiaoShan/LIO-SAM`'s own
+     `include/utility.h::imuConverter()` checks the rotated quaternion's norm and calls
+     `ros::shutdown()` with `"Invalid quaternion, please use a 9-axis IMU!"` if it's near
+     zero, which an all-zero passthrough triggers immediately (confirmed against source, not
+     assumed) -- so this is genuine upstream LIO-SAM with a sensor-only adapter, not a
+     relabeled derivative. See "LIO-SAM integration" below for the filter, `beta`, and a
+     real bug the adapter's own unit test caught (a gradient-descent singularity from seeding
+     the filter at a fixed identity quaternion instead of the first accel reading).
    - All other methods: confirm they ignore `orientation` (**verify** per method).
 2. **Per-point time is absolute.** The PointCloud2 `timestamp` field is float64 **absolute
    epoch seconds**. The first point equals the header stamp (median +1 µs) and scans span
@@ -68,8 +75,18 @@ These come from `lio-bench inspect` and hold identically on exp14, exp16 and exp
 5. **Extrinsics.** T_I_L rotates z_L to −z_I (the LiDAR is mounted upside down relative to
    the IMU), with a 5.6 cm lever arm. Each method's extrinsic convention (T_I_L versus T_L_I,
    rotation matrix order) is checked with a known-answer test before the first run.
+   - **LIO-SAM (resolved):** needs `T_L_I` (`T_I_L` inverted), not `T_I_L` directly, despite
+     `config/params.yaml`'s own comment calling it `"T_lb (lidar -> imu)"`. Confirmed by
+     reading `imuConverter()`'s actual usage (`acc = extrinsicRot * acc_imu`, rotating an
+     IMU-frame vector into the lidar/`base_link`-aligned frame LIO-SAM assumes throughout),
+     not the misleading comment. See `configs/lio_sam/hilti22.yaml` and
+     `tests/test_frames.py::test_lio_sam_extrinsic_is_T_L_I_not_T_I_L`.
 6. **Output frame.** Each adapter records whether the method publishes IMU or LiDAR body
    poses, so that `lio-bench eval --frame` converts them correctly.
+   - **LIO-SAM (resolved):** LiDAR-frame, the opposite of FAST-LIO2. `mapOptmization.cpp`
+     keeps `lidarFrame == baselinkFrame == "base_link"` and publishes its optimized pose
+     directly on `lio_sam/mapping/odometry` with no further frame conversion -- use
+     `--frame lidar`.
 7. **ROS 2 input.** The rosbag2 conversions currently use metadata version 9. ROS 2 Humble
    (GLIM, RTAB-Map) may need `lio-bench data convert --dst-version N` with an older version
    (**verify** when the Humble images are built).
@@ -142,6 +159,97 @@ its `livox_ros_driver` build dependency, on `ros:noetic-ros-base` pinned by dige
   waits for the mapping node to subscribe before playing the bag; times out the playback; and
   fails if no trajectory was written. Use the original ROS 1 bag, not the rosbag2/MCAP
   conversion (this method's environment is ROS 1 Noetic).
+
+## LIO-SAM integration
+
+`docker/lio_sam/Dockerfile` builds `TixiaoShan/LIO-SAM` pinned at `0be1fbe` (2023-04-17, latest
+master at integration time), on `ros:noetic-ros-base` (same pinned digest as `fast_lio2`).
+
+- **Noetic build validation.** LIO-SAM's bundled instructions target Kinetic; master has never
+  merged a Noetic port (PRs `#393`/`#408`, both open/closed unmerged). The Dockerfile applies
+  the fix upstream's own maintainer (TixiaoShan) summarized and endorsed in
+  `github.com/TixiaoShan/LIO-SAM/issues/206`, not an improvised patch: (1) GTSAM 4.0.3 from
+  the official `ppa:borglab/gtsam-release-4.0` (README's own instructions), not built from
+  source -- building 4.0.2 from source was the original reported failure; (2)
+  `include/utility.h`'s `#include <opencv/cv.h>` replaced with `#include <opencv2/opencv.hpp>`
+  placed after the PCL headers, avoiding a FLANN/OpenCV `unordered_map::serialize` symbol
+  clash (confirmed independently by two issue reporters); (3) `CMakeLists.txt`'s
+  `-std=c++11` bumped to `-std=c++14`. No GPU/CUDA dependency (`package.xml` lists only
+  roscpp/rospy/tf/cv_bridge/pcl_conversions/message_generation/GTSAM/OpenMP/PCL/OpenCV/Boost
+  -- verified against the file, not assumed).
+- **Orientation adapter (point 1, resolved).** `adapters/lio_sam/orientation_filter.py` is a
+  standard 6-axis Madgwick filter (Madgwick 2010, gradient-descent variant, no magnetometer
+  term), `beta = 0.1` (Madgwick's own paper-recommended value for a MEMS-class IMU),
+  operating at the measured 399.2 Hz `/alphasense/imu` rate. It reads only this IMU's own
+  `angular_velocity`/`linear_acceleration` and never ground truth.
+  `adapters/lio_sam/imu_orientation_node.py` runs it statefully per message and republishes
+  on `/alphasense/imu/oriented`, which `configs/lio_sam/hilti22.yaml`'s `imuTopic` points at.
+  Without a magnetometer, yaw is unobservable and free-drifts from an arbitrary initial
+  value -- this only ever supplies a gravity-referenced roll/pitch, which is what LIO-SAM's
+  `extrinsicRPY` rotation and low-confidence `imuRPYWeight` (0.01) actually need it for, not
+  a global heading reference.
+  - **Bug caught by the adapter's own unit test.** Seeding the filter at a fixed identity
+    quaternion is a gradient-descent singularity whenever the true attitude is near-antipodal
+    to the filter's `[0,0,1]` reference -- which it is here: this IMU's "up" reaction force
+    reads along `-z` (docs/dataset.md's "up -z" at-rest measurement), diametrically opposite
+    the reference. From identity the correction gradient is exactly zero at that point, and
+    small gyro/floating-point asymmetries then drove the filter to an unrelated, wrong
+    attitude over a few thousand steps instead of converging -- caught by
+    `test_madgwick_converges_to_measured_gravity_direction_at_rest`
+    (`tests/test_adapters.py`), not by inspection. Fixed by seeding the initial quaternion
+    from the first accelerometer reading (`orientation_filter.initial_quaternion`), the
+    standard practical fix, used identically in `imu_orientation_node.py` and the test.
+- **Point-cloud adapter.** LIO-SAM's `VelodynePointXYZIRT`
+  (`src/imageProjection.cpp`) is byte-identical to FAST-LIO2's velodyne layout (x, y, z,
+  intensity as f4, `ring` u2, `time` f4 seconds relative to the header stamp;
+  `imageProjection.cpp` accepts a point-time field named `"time"` or `"t"` and adds it to the
+  scan's header stamp to deskew each point -- confirmed against source). Because the layouts
+  match, `adapters/lio_sam/pointcloud_adapter.py`'s `to_lio_sam_points` is functionally the
+  same conversion as FAST-LIO2's, unit-tested the same way in `tests/test_adapters.py`
+  against the shared synthetic-scan helper.
+- **Extrinsics (point 5, resolved above).** `configs/lio_sam/hilti22.yaml`'s `extrinsicRot`/
+  `extrinsicTrans`/`extrinsicRPY` are `T_L_I` (`T_I_L` from `configs/dataset/hilti22.yaml`,
+  inverted), verified by `tests/test_frames.py::test_lio_sam_extrinsic_is_T_L_I_not_T_I_L`.
+  `extrinsicRPY` is set equal to `extrinsicRot` since the synthesized orientation is computed
+  directly in the same raw IMU frame as accel/gyro (no separate AHRS-frame offset to correct
+  for, unlike a genuine 9-axis IMU with its own internal fusion frame).
+- **GPS factor and loop closure (`docs/protocol.md` #1, hard requirement).**
+  `loopClosureEnableFlag: false`. No GPS topic is ever published in this benchmark
+  (online-odometry scope); `mapOptmization.cpp::addGPSFactor()` no-ops on an empty
+  `gpsQueue`, confirmed from source, so no separate disable flag is needed for GPS.
+- **Blind zone (point 4).** `lidarMinRange: 0.1` m, same reasoning as FAST-LIO2's `blind`.
+- **Run wrapper.** `scripts/run_lio_sam.sh` launches four nodes (`lio_sam_imageProjection`,
+  `lio_sam_featureExtraction`, `lio_sam_imuPreintegration`, `lio_sam_mapOptmization` --
+  LIO-SAM has no single combined node like FAST-LIO2's `fastlio_mapping`), plus the
+  orientation and point-cloud adapters and the TUM exporter. Readiness gates on
+  `lio_sam_imageProjection` subscribing to the adapted point-cloud topic. No
+  `--clock`/`use_sim_time`, same reasoning as `run_fast_lio2.sh` (every node here keys off
+  `header.stamp`, never `ros::Time::now()`).
+  - **Shutdown/save (verify resolved).** Unlike FAST-LIO2's single `SIGINT`-triggered save,
+    `mapOptmization.cpp`'s `visualizeGlobalMapThread()` runs `while (ros::ok()) rate.sleep();`
+    (`rate(0.2)`, i.e. a 5 s period) and only falls through to `saveMapService()` once that
+    loop notices shutdown -- still `SIGINT`-driven, but with up to ~5 s of latency before the
+    node even checks, then more time to downsample and write the full map. The wrapper polls
+    up to 90 s (versus FAST-LIO2's 30 s) for the output file.
+  - **Save path (verify resolved).** `saveMapService`'s default (empty `req.destination`)
+    resolves to `$HOME` + `savePCDDirectory` (`config/params.yaml`'s value, `/pcd_out/` here),
+    **not** the literal config value -- and the code deletes and recreates that directory on
+    every save (confirmed from source: `rm -rf` then `mkdir -p`), so the wrapper treats it as
+    ephemeral scratch, cleared at the start of every run. The map artifact is
+    `GlobalMap.pcd`, copied out as `map.pcd` like FAST-LIO2's.
+- **Config baseline vs. tuning (departure from the FAST-LIO2 pattern).** IMU noise
+  covariances, feature/registration leaf sizes, and keyframe thresholds are left at LIO-SAM's
+  own upstream defaults in the baseline config -- phase-1 manual/hypothesis-driven tuning
+  (`docs/protocol.md` §6.1) is **explicitly skipped for this method** (confirmed decision).
+  These become `scripts/lio_sam_sweep.py`'s search parameters directly, with ranges centered
+  on the upstream defaults and spread 1-2 orders of magnitude wider than FAST-LIO2's
+  phase-1-bounded sweep, since nothing measured bounds them here. Per `docs/protocol.md` §6.2,
+  this is a documented deviation ("sweeping without a phase-1-justified region is guessing
+  with extra steps, not a real phase 2"), not presented as equivalent rigor to FAST-LIO2's
+  sweep -- every sweep-trial run record and the journal entry say so explicitly. LIO-SAM has
+  no configurable optimization-iteration-count param (`mapOptmization.cpp` hardcodes 30 LM
+  iterations at `src/mapOptmization.cpp:1292`), unlike FAST-LIO2's `max_iteration` -- verified
+  against source, so no such sweep dimension exists for this method.
 
 ## Exclusions
 
