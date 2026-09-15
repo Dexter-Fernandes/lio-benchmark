@@ -207,7 +207,17 @@ def cmd_log(args) -> int:
     try:
         print(log_to_wandb(Path(args.run_dir)))
     except ImportError:
-        print("error: wandb is not installed; `uv sync --extra wandb`", file=sys.stderr)
+        print("error: wandb is not installed; `uv sync`", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_report(args) -> int:
+    from .tracking import build_report
+    try:
+        print(build_report(args.project, args.entity))
+    except ImportError:
+        print("error: wandb is not installed; `uv sync`", file=sys.stderr)
         return 1
     return 0
 
@@ -276,9 +286,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--decision", required=True, choices=["keep", "revert", "investigate"])
     p.set_defaults(func=cmd_run_close)
 
-    p = sub.add_parser("log", help="mirror a run record to W&B (offline by default)")
+    p = sub.add_parser("log", help="mirror a run record to W&B (online by default)")
     p.add_argument("run_dir")
     p.set_defaults(func=cmd_log)
+
+    p = sub.add_parser("report", help="create/update a W&B report comparing every logged run")
+    p.add_argument("--project", help="default: $WANDB_PROJECT or .env, else 'lio-benchmark'")
+    p.add_argument("--entity", help="default: $WANDB_ENTITY or .env, else your default entity")
+    p.set_defaults(func=cmd_report)
     return ap
 
 

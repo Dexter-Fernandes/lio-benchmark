@@ -12,7 +12,7 @@ run=$(lio-bench run init --method fast_lio2 --sequence exp14 --config <resolved.
 # ... run the method, export its trajectory as TUM ...
 lio-bench eval exp14 <trajectory.tum> --frame imu --run-dir "$run"
 lio-bench run close "$run" --interpretation "..." --decision keep|revert|investigate
-lio-bench log "$run"          # optional: mirror to W&B (offline unless WANDB_MODE=online)
+lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
 ```
 
 ## Entry template

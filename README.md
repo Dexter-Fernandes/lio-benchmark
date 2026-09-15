@@ -65,9 +65,12 @@ Each run is a directory under `runs/` (configurable with `LIO_RUNS_ROOT`) holdin
 - the hypothesis, change, metrics, trajectory and plots;
 - the decision.
 
-`lio-bench log <run_dir>` mirrors a run to Weights & Biases. `WANDB_MODE` defaults to
-`offline`, so no credentials are needed; sync later with `wandb sync`. The W&B entity and
-project are set in `.env`.
+`lio-bench log <run_dir>` mirrors a run to Weights & Biases; `WANDB_MODE` defaults to
+`online`, so every run lands on the dashboard. Run `scripts/wandb_setup.sh` once to install,
+log in and configure `.env` (or set `WANDB_MODE=offline` there yourself to develop without
+credentials and sync later with `wandb sync`). The W&B entity and project are set in `.env`.
+`lio-bench report` builds/updates a saved W&B Report comparing ATE/RPE across every run in
+the project.
 
 ## Layout
 

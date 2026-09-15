@@ -11,10 +11,9 @@ dependencies = [
     "pyyaml>=6.0",
     "rosbags>=0.10",
     "matplotlib>=3.8",
+    "wandb>=0.17",
+    "wandb-workspaces>=0.4",
 ]
-
-[project.optional-dependencies]
-wandb = ["wandb>=0.17"]
 
 [project.scripts]
 lio-bench = "lio_benchmark.cli:main"
