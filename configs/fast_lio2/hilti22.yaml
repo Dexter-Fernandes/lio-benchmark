@@ -1,0 +1,48 @@
+# FAST-LIO2 baseline config for Hilti-Oxford 2022 (exp14/exp16/exp18), adapted from
+# hku-mars/FAST_LIO config/velodyne.yaml at the pinned revision (docker/fast_lio2/Dockerfile).
+#
+# Dataset-specific adaptations from docs/dataset.md and configs/dataset/hilti22.yaml, not
+# tuning:
+# - lid_topic points at the adapter's republished topic (adapters/fast_lio2/ros_node.py),
+#   which carries FAST-LIO2's expected (x,y,z,intensity,ring,time) velodyne layout.
+# - timestamp_unit: 0 (seconds) because the adapter's `time` field is relative seconds.
+# - blind: 0.1m, below the measured p01 range (0.17-0.20m across exp14/16/18) so real
+#   short-range returns from the handheld rig are kept.
+# - extrinsic_T/extrinsic_R are T_I_L (LiDAR -> IMU) from configs/dataset/hilti22.yaml,
+#   verified by frames.check_lidar_extrinsics; see docs/methods.md point 5.
+
+common:
+    lid_topic: "/hesai/pandar/fast_lio2"
+    imu_topic: "/alphasense/imu"
+    time_sync_en: false
+    time_offset_lidar_to_imu: 0.0
+
+preprocess:
+    lidar_type: 2                # Velodyne-layout handler; adapter republishes PandarXT-32 in this layout
+    scan_line: 32                # PandarXT-32 channel count
+    scan_rate: 10
+    timestamp_unit: 0            # seconds; matches adapter's relative `time` field
+    blind: 0.1
+
+mapping:
+    acc_cov: 0.1
+    gyr_cov: 0.1
+    b_acc_cov: 0.0001
+    b_gyr_cov: 0.0001
+    fov_degree: 360
+    det_range: 100.0
+    extrinsic_est_en: false
+    extrinsic_T: [-0.001, -0.00855, 0.055]
+    extrinsic_R: [0.0, -1.0, 0.0,
+                  -1.0, 0.0, 0.0,
+                  0.0, 0.0, -1.0]
+
+publish:
+    path_en: false
+    scan_publish_en: true
+    dense_publish_en: true
+    scan_bodyframe_pub_en: true
+
+pcd_save:
+    pcd_save_en: false
+    interval: -1

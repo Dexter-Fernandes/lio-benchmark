@@ -1,6 +1,7 @@
 # Methods
 
-No method is integrated yet. This page records scope decisions, the variants we mean, and
+FAST-LIO2 integration is in progress (`docker/fast_lio2/`, `adapters/fast_lio2/`); no other
+method is integrated yet. This page records scope decisions, the variants we mean, and
 the integration questions each method raises for this dataset. The measured input facts are
 in [dataset.md](dataset.md). Any claim about upstream behaviour below that is marked
 **verify** has not yet been checked against the pinned source.
@@ -9,7 +10,7 @@ in [dataset.md](dataset.md). Any claim about upstream behaviour below that is ma
 
 | Method | Role | Planned environment | Status |
 |---|---|---|---|
-| FAST-LIO2 | core tightly coupled LIO, **first integration** | Ubuntu 20.04 / ROS Noetic | not started |
+| FAST-LIO2 | core tightly coupled LIO, **first integration** | Ubuntu 20.04 / ROS Noetic | integrating, see below |
 | FAST-LIO (original) | separate implementation, pinned to its own revision | its supported environment | not started |
 | LIO-SAM | core LIO, GPS and loop closure disabled | Ubuntu 20.04 / Noetic, pinned GTSAM | not started; IMU orientation issue below |
 | GLIM | CPU LiDAR-inertial odometry; global mapping only as secondary | Ubuntu 22.04 / ROS 2 Humble, no CUDA | not started |
@@ -72,6 +73,36 @@ These come from `lio-bench inspect` and hold identically on exp14, exp16 and exp
 7. **ROS 2 input.** The rosbag2 conversions currently use metadata version 9. ROS 2 Humble
    (GLIM, RTAB-Map) may need `lio-bench data convert --dst-version N` with an older version
    (**verify** when the Humble images are built).
+
+## FAST-LIO2 integration
+
+`docker/fast_lio2/Dockerfile` builds `hku-mars/FAST_LIO` pinned at `7cc4175` (2024-07-23) with
+its `livox_ros_driver` build dependency, on `ros:noetic-ros-base` pinned by digest.
+
+- **Point-time adapter.** `adapters/fast_lio2/ros_node.py` republishes `/hesai/pandar` as
+  `/hesai/pandar/fast_lio2` in FAST-LIO2's velodyne layout (x, y, z, intensity, ring, time),
+  with `time` the per-point `timestamp` minus the scan's header stamp, in seconds. The pure
+  conversion (`adapters/fast_lio2/pointcloud_adapter.py`) is unit-tested in
+  `tests/test_adapters.py` against synthetic scans built from the measured facts above (point
+  2). `configs/fast_lio2/hilti22.yaml` sets `preprocess.timestamp_unit: 0` (seconds) to match.
+- **Blind zone (point 4).** Set to 0.1 m, below the measured p01 range (0.17-0.20 m across
+  exp14/16/18), so real short-range returns from the handheld rig are not dropped.
+- **Extrinsics (point 5).** `extrinsic_T`/`extrinsic_R` in `configs/fast_lio2/hilti22.yaml`
+  are `T_I_L` (confirmed **verify**: FAST-LIO2's README states extrinsic_T/R map LiDAR into
+  IMU, i.e. `p_IMU = R * p_LiDAR + T`, the same convention as `T_I_L`), taken from
+  `configs/dataset/hilti22.yaml` via `frames.extrinsic` and checked with
+  `frames.check_lidar_extrinsics`.
+- **Output frame (point 6, verify resolved).** FAST-LIO2's `/Odometry` is the estimated IMU
+  pose directly (the ESKF state is IMU-centric), so evaluation uses `--frame imu`.
+- **Orientation (point 1, verify resolved).** FAST-LIO2's velodyne/IMU handling never reads
+  `sensor_msgs/Imu.orientation`, only angular velocity and linear acceleration, so the all-zero
+  orientation quaternion is a non-issue for this method.
+- **Run wrapper.** `scripts/run_fast_lio2.sh` (the image's entry point convention, no
+  `ENTRYPOINT` so the devcontainer still gets a plain shell) starts `roscore`, the adapter, an
+  `/Odometry` to TUM exporter (`adapters/fast_lio2/odom_to_tum.py`), and `fastlio_mapping`;
+  waits for the mapping node to subscribe before playing the bag; times out the playback; and
+  fails if no trajectory was written. Use the original ROS 1 bag, not the rosbag2/MCAP
+  conversion (this method's environment is ROS 1 Noetic).
 
 ## Exclusions
 
