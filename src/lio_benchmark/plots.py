@@ -12,11 +12,10 @@ from .evaluation import EvalResult  # noqa: E402
 from .trajectory import Trajectory  # noqa: E402
 
 
-def plot_evaluation(gt: Trajectory, result: EvalResult, out_dir: Path, title: str) -> list[Path]:
+def plot_evaluation(gt: Trajectory, result: EvalResult, out_dir: Path, title: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    written = []
     if result.aligned is None:
-        return written
+        return
     t0 = gt.t[0]
 
     fig, ax = plt.subplots(figsize=(7, 6))
@@ -28,10 +27,8 @@ def plot_evaluation(gt: Trajectory, result: EvalResult, out_dir: Path, title: st
     ax.set_title(f"{title}: top view")
     ax.legend(loc="best")
     fig.tight_layout()
-    path = out_dir / "trajectory_xy.png"
-    fig.savefig(path, dpi=120)
+    fig.savefig(out_dir / "trajectory_xy.png", dpi=120)
     plt.close(fig)
-    written.append(path)
 
     fig, axes = plt.subplots(2, 1, figsize=(8, 5), sharex=True)
     ts = result.assoc.est.t - t0
@@ -46,8 +43,5 @@ def plot_evaluation(gt: Trajectory, result: EvalResult, out_dir: Path, title: st
         ax.set_xlim(0, gt.t[-1] - t0)
         ax.grid(alpha=0.3)
     fig.tight_layout()
-    path = out_dir / "ate_over_time.png"
-    fig.savefig(path, dpi=120)
+    fig.savefig(out_dir / "ate_over_time.png", dpi=120)
     plt.close(fig)
-    written.append(path)
-    return written

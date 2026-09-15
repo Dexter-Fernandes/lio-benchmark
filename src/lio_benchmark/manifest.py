@@ -1,7 +1,7 @@
 """Load and validate the dataset manifest (manifests/hilti22.yaml)."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -38,13 +38,10 @@ class Sequence:
 class Manifest:
     dataset: str
     source: dict
-    license: dict
-    citation: str
     default_groups: list[str]
     files: list[FileEntry]
     sequences: dict[str, Sequence]
     split: dict[str, list[str]]
-    path: Path | None = field(default=None, compare=False)
 
     @property
     def revision(self) -> str:
@@ -121,8 +118,7 @@ def load_manifest(path: Path | None = None) -> Manifest:
     if missing := set(all_split) - set(sequences):
         raise ManifestError(f"split names unknown sequences {sorted(missing)}")
 
-    m = Manifest(raw["dataset"], raw["source"], raw["license"], raw["citation"].strip(),
-                 list(raw["default_groups"]), files, sequences, split, path)
+    m = Manifest(raw["dataset"], raw["source"], list(raw["default_groups"]), files, sequences, split)
     if unknown := set(m.default_groups) - set(m.groups):
         raise ManifestError(f"default_groups names unknown groups {sorted(unknown)}")
     return m

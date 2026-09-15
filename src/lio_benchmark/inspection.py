@@ -18,7 +18,7 @@ from scipy.spatial.transform import Rotation
 
 from .download import write_json_atomic
 from .frames import check_lidar_extrinsics, dataset_config, extrinsic, lidar_extrinsic_from_calibration
-from .manifest import Manifest, Sequence
+from .manifest import Sequence
 from .paths import provenance_dir
 from .trajectory import load_sparse, load_tum
 
@@ -51,20 +51,12 @@ def _dist(x) -> dict:
             "std": float(x.std()), "median": float(np.median(x))}
 
 
-def infer_point_time_unit(per_scan_min_minus_header: np.ndarray, per_scan_spread: np.ndarray,
-                          sample_value: float) -> str:
-    """Classify a per-point time field from its magnitude and per-scan spread."""
+def infer_point_time_unit(sample_value: float) -> str:
+    """Classify a per-point time field from its magnitude (absolute epoch times only)."""
     if abs(sample_value) > 1e17:
         return "nanoseconds_absolute"
     if abs(sample_value) > 1e8:
         return "seconds_absolute"
-    spread = float(np.median(per_scan_spread))
-    if 0.01 < spread < 1.0:
-        return "seconds_relative"
-    if 1e4 < spread < 1e6:
-        return "microseconds_relative"
-    if 1e7 < spread < 1e9:
-        return "nanoseconds_relative"
     return "unknown"
 
 
@@ -124,7 +116,7 @@ def _lidar_section(reader, conn) -> dict:
         spreads, mmh = np.array(spreads), np.array(min_minus_header)
         section["point_time"] = {
             "field": time_field,
-            "unit": infer_point_time_unit(mmh, spreads, sample_time),
+            "unit": infer_point_time_unit(sample_time),
             "per_scan_spread": _dist(spreads),
             "per_scan_min_minus_header": _dist(mmh),
             "per_scan_max_minus_header": _dist(max_minus_header),
@@ -199,7 +191,7 @@ def gravity_check(gt, t: float, acc_rest_I: np.ndarray) -> dict:
             "angle_to_up_deg_if_xyzw": ang(as_xyzw), "angle_to_up_deg_if_wxyz": ang(as_wxyz)}
 
 
-def inspect_sequence(manifest: Manifest, seq: Sequence, data_root: Path, rest_seconds: float = 1.0,
+def inspect_sequence(seq: Sequence, data_root: Path, rest_seconds: float = 1.0,
                      log=print) -> dict:
     cfg = dataset_config()
     bag = data_root / seq.bag

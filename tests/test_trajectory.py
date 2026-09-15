@@ -59,9 +59,3 @@ def test_sparse_parser_reads_rows_not_header(tmp_path):
     sp = load_sparse(f)
     assert len(sp.t) == 3
     np.testing.assert_allclose(sp.p[0], [122.60485, 17.2029, -1.00685])
-
-
-def test_sparse_parser_header_layout(tmp_path):
-    f = tmp_path / "s.txt"
-    f.write_text(f"{T0} 7 1.0 2.0 3.0\n{T0 + 1} 8 4.0 5.0 6.0\n")
-    np.testing.assert_allclose(load_sparse(f).p[1], [4, 5, 6])

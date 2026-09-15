@@ -1,8 +1,7 @@
 """Locations of the repository, the dataset root and run outputs.
 
 Resolution order for every setting: process environment, then `<repo>/.env`, then a default.
-The data root defaults to `/data/hilti22` inside containers (where it is mounted) and to
-`~/data/hilti22` on the host.
+The tools image sets LIO_DATA_ROOT=/data/hilti22; on the host it defaults to ~/data/hilti22.
 """
 from __future__ import annotations
 
@@ -10,16 +9,10 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-CONTAINER_DATA_ROOT = Path("/data/hilti22")
-
 
 def repo_root() -> Path:
-    if "LIO_REPO_ROOT" in os.environ:
-        return Path(os.environ["LIO_REPO_ROOT"])
-    here = Path(__file__).resolve().parents[2]
-    if (here / "manifests").is_dir():
-        return here
-    return Path.cwd()
+    here = Path(__file__).resolve().parents[2]   # src/lio_benchmark/paths.py -> repo (editable install)
+    return here if (here / "manifests").is_dir() else Path.cwd()
 
 
 @lru_cache(maxsize=1)
@@ -44,12 +37,7 @@ def setting(name: str, default: str | None = None) -> str | None:
 
 
 def data_root() -> Path:
-    value = setting("LIO_DATA_ROOT")
-    if value:
-        return Path(value)
-    if CONTAINER_DATA_ROOT.is_dir():
-        return CONTAINER_DATA_ROOT
-    return Path.home() / "data" / "hilti22"
+    return Path(setting("LIO_DATA_ROOT") or Path.home() / "data" / "hilti22")
 
 
 def runs_root() -> Path:

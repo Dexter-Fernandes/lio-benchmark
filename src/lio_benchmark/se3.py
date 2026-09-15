@@ -47,9 +47,3 @@ class SE3:
 
     def __repr__(self) -> str:
         return f"SE3(t={np.round(self.t, 6).tolist()}, q_xyzw={np.round(self.xyzw(), 6).tolist()})"
-
-
-def rotation_angle_deg(R) -> np.ndarray:
-    """Rotation angle of one (3, 3) or many (N, 3, 3) rotation matrices, in degrees."""
-    R = np.asarray(R, dtype=float)
-    return np.degrees(Rotation.from_matrix(R).magnitude())

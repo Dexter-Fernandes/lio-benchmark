@@ -13,7 +13,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.12@sha256:73d2665b478d8fa2de1cf105c6841f8e
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates git sudo \
+        curl ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user whose UID/GID match the host user, so files written to the data root and
@@ -22,8 +22,7 @@ ARG USERNAME=dev
 ARG USER_UID=1000
 ARG USER_GID=1000
 RUN groupadd --gid ${USER_GID} ${USERNAME} \
-    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash ${USERNAME} \
-    && echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME}
+    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash ${USERNAME}
 
 # The environment lives outside the workspace so it never collides with a host .venv.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \

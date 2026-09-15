@@ -31,8 +31,6 @@ import yaml
 from .download import write_json_atomic
 from .paths import repo_root, setting
 
-DECISIONS = ("keep", "revert", "investigate")
-
 
 def canonical_hash(obj) -> str:
     """SHA-256 of a JSON rendering that ignores key order."""
@@ -52,10 +50,9 @@ def flatten(d: dict, prefix: str = "") -> dict:
     return out
 
 
-def git_state(path: Path | None = None) -> dict:
-    path = path or repo_root()
+def git_state() -> dict:
     def git(*args):
-        r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", str(repo_root()), *args], capture_output=True, text=True)
         return r.stdout.strip() if r.returncode == 0 else None
     status = git("status", "--porcelain")
     return {"commit": git("rev-parse", "HEAD"), "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
@@ -82,10 +79,9 @@ def environment() -> dict:
     }
 
 
-def new_run_id(method: str, sequence: str, label: str = "", now: datetime | None = None) -> str:
-    now = now or datetime.now(timezone.utc)
-    parts = [now.strftime("%Y%m%dT%H%M%SZ"), method, sequence] + ([label] if label else [])
-    return re.sub(r"[^A-Za-z0-9_.-]+", "-", "_".join(parts))
+def new_run_id(method: str, sequence: str, label: str = "") -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", "_".join([stamp, method, sequence] + ([label] if label else [])))
 
 
 def init_run(runs_root: Path, method: str, sequence: str, split: str, config: dict, *,
@@ -112,8 +108,6 @@ def read_run(run_dir: Path) -> dict:
 
 
 def update_run(run_dir: Path, **fields) -> dict:
-    if fields.get("decision") is not None and fields["decision"] not in DECISIONS:
-        raise ValueError(f"decision must be one of {DECISIONS}")
     run = {**read_run(run_dir), **fields}
     write_json_atomic(Path(run_dir) / "run.json", run)
     return run

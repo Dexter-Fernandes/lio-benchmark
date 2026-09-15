@@ -6,20 +6,14 @@
 #
 # The data root is mounted read-only unless the command writes to it
 # (`lio-bench data download|verify|convert`, `lio-bench inspect`, or LIO_DATA_RW=1).
-# Settings come from the environment or .env: LIO_DATA_ROOT (required), LIO_RUNS_ROOT,
-# WANDB_MODE/ENTITY/PROJECT. WANDB_API_KEY is passed through only if already set.
+# Settings come from the environment, overridden by .env if present: LIO_DATA_ROOT
+# (required), LIO_RUNS_ROOT, WANDB_MODE/ENTITY/PROJECT/API_KEY (passed through when set).
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 image="${LIO_TOOLS_IMAGE:-lio-benchmark/tools:dev}"
 
-if [ -f "$repo/.env" ]; then
-  # Only fill variables that are not already set in the environment.
-  while IFS='=' read -r key value; do
-    [[ -z "$key" || "$key" == \#* ]] && continue
-    [ -z "${!key:-}" ] && [ -n "$value" ] && export "$key=$value"
-  done < "$repo/.env"
-fi
+set -a; [ -f "$repo/.env" ] && . "$repo/.env"; set +a
 
 data_root="${LIO_DATA_ROOT:?set LIO_DATA_ROOT (see .env.example)}"
 runs_root="${LIO_RUNS_ROOT:-$repo/runs}"
@@ -35,16 +29,11 @@ elif [ "${1:-}" = "lio-bench" ]; then
 fi
 
 tty=(); [ -t 0 ] && [ -t 1 ] && tty=(-it)
-env_args=(-e "WANDB_MODE=${WANDB_MODE:-offline}")
-for v in WANDB_ENTITY WANDB_PROJECT WANDB_API_KEY; do
-  [ -n "${!v:-}" ] && env_args+=(-e "$v")
-done
 
 exec docker run --rm "${tty[@]}" \
   --user "$(id -u):$(id -g)" \
   -v "$repo:/workspaces/lio-benchmark" \
   -v "$data_root:/data/hilti22:$mode" \
   -v "$runs_root:/runs" \
-  -e LIO_REPO_ROOT=/workspaces/lio-benchmark \
-  "${env_args[@]}" \
+  -e WANDB_MODE="${WANDB_MODE:-offline}" -e WANDB_ENTITY -e WANDB_PROJECT -e WANDB_API_KEY \
   "$image" "$@"

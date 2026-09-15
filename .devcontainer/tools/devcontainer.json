@@ -17,10 +17,6 @@
     "source=${localWorkspaceFolder}/runs,target=/runs,type=bind"
   ],
   "initializeCommand": "mkdir -p runs",
-  "postCreateCommand": "uv sync --frozen --extra wandb --group dev",
-  "containerEnv": {
-    "WANDB_MODE": "offline"
-  },
   "customizations": {
     "vscode": {
       "extensions": ["ms-python.python"],

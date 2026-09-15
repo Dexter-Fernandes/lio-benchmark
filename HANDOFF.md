@@ -21,7 +21,7 @@ Suggested repository description: Reproducible LiDAR-inertial odometry benchmark
 
 Done on branch `scaffold/foundation` (see README.md for commands):
 
-- **Python project** (`uv`, Python 3.11) with the `lio-bench` CLI, and the **tools image** `docker/tools/Dockerfile` (base and uv pinned by digest) with its devcontainer `.devcontainer/tools/`. `scripts/in-tools.sh` runs commands in the image and mounts data read-only except for data-writing commands. 62 tests pass on the host and in the container.
+- **Python project** (`uv`, Python 3.11) with the `lio-bench` CLI, and the **tools image** `docker/tools/Dockerfile` (base and uv pinned by digest) with its devcontainer `.devcontainer/tools/`. `scripts/in-tools.sh` runs commands in the image and mounts data read-only except for data-writing commands. 60 tests pass on the host and in the container.
 - **Manifest** `manifests/hilti22.yaml`: HF revision `e62017f9…`, sizes and published hashes (LFS SHA-256 or git blob SHA-1, taken from the HF API, none invented), licence, citation, groups and split. The Sheldonian reference scan and CAD files are opt-in groups and have not been downloaded.
 - **Data** at `LIO_DATA_ROOT=/home/dexter/data/hilti22`, the same layout ranger-lio uses:
   - exp14, exp16 and exp18 ROS 1 bags, `imu_noise_calibration.bag`, ground truth and calibration files, all hash-verified (`_provenance/verified.json`).

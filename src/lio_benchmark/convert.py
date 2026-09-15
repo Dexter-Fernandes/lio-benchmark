@@ -56,7 +56,6 @@ def summarize(bag: Path, topics: list[str]) -> dict:
     """Per-topic counts, time bounds and content digest for a ROS 1 bag or rosbag2 directory."""
     out: dict = {"path": str(bag), "topics": {}}
     with AnyReader([Path(bag)]) as reader:
-        out["format"] = "rosbag1" if Path(bag).is_file() else "rosbag2"
         conns = [c for c in reader.connections if c.topic in topics]
         missing = set(topics) - {c.topic for c in conns}
         if missing:

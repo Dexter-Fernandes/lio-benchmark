@@ -142,8 +142,7 @@ def preflight_space(entries: list[FileEntry], data_root: Path, margin: int = SPA
     return needed
 
 
-def fetch(url: str, part: Path, expected_size: int, curl: str = "curl",
-          retries: int = 8, retry_delay: int = 10) -> None:
+def fetch(url: str, part: Path, expected_size: int, retries: int = 8, retry_delay: int = 10) -> None:
     """Resume `part` from `url` until it has `expected_size` bytes."""
     part.parent.mkdir(parents=True, exist_ok=True)
     if part.exists() and part.stat().st_size > expected_size:
@@ -151,7 +150,7 @@ def fetch(url: str, part: Path, expected_size: int, curl: str = "curl",
     if part.exists() and part.stat().st_size == expected_size:
         return          # complete; asking for a range past the end would return 416
     progress = ["--progress-bar"] if sys.stderr.isatty() else ["--silent", "--show-error"]
-    cmd = [curl, "--location", "--fail", "--retry", str(retries), "--retry-delay", str(retry_delay),
+    cmd = ["curl", "--location", "--fail", "--retry", str(retries), "--retry-delay", str(retry_delay),
            "--retry-all-errors", "--continue-at", "-", *progress, "--output", str(part), url]
     result = subprocess.run(cmd)
     if result.returncode != 0:
@@ -159,7 +158,7 @@ def fetch(url: str, part: Path, expected_size: int, curl: str = "curl",
 
 
 def download_entry(entry: FileEntry, url: str, data_root: Path, store: VerifiedStore,
-                   revision: str, curl: str = "curl", log=_log) -> FileStatus:
+                   revision: str, log=_log) -> FileStatus:
     file = data_root / entry.path
     if file.exists():
         status = check_file(entry, data_root, store, revision)
@@ -172,7 +171,7 @@ def download_entry(entry: FileEntry, url: str, data_root: Path, store: VerifiedS
 
     part = part_path(file)
     log(f"fetch {entry.path} ({entry.size / 1e9:.3f} GB)")
-    fetch(url, part, entry.size, curl=curl)
+    fetch(url, part, entry.size)
     size = part.stat().st_size
     if size != entry.size:
         raise DownloadError(f"{entry.path}: downloaded {size} bytes, expected {entry.size}")
@@ -190,13 +189,13 @@ def download_entry(entry: FileEntry, url: str, data_root: Path, store: VerifiedS
 
 
 def download(manifest: Manifest, data_root: Path, groups: list[str] | None = None,
-             curl: str = "curl", log=_log) -> list[FileStatus]:
+             log=_log) -> list[FileStatus]:
     entries = manifest.select(groups)
     store = VerifiedStore(data_root)
     needed = preflight_space(entries, data_root)
     log(f"{len(entries)} files selected, {needed / 1e9:.2f} GB to fetch into {data_root} "
         f"(revision {manifest.revision[:12]})")
-    return [download_entry(e, manifest.url(e), data_root, store, manifest.revision, curl, log)
+    return [download_entry(e, manifest.url(e), data_root, store, manifest.revision, log)
             for e in entries]
 
 

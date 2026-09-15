@@ -51,9 +51,9 @@ File-format facts (checked by the parsers and tests):
 
 ## Frames and calibration
 
-From `calibration/calibration_files/lidar_calibration.yaml` ("Calibration Phasma25 22/03/22"),
-copied into [`configs/dataset/hilti22.yaml`](../configs/dataset/hilti22.yaml) and checked
-against the file by `lio-bench inspect`:
+From `calibration/calibration_files/lidar_calibration.yaml` ("Calibration Phasma25 22/03/22").
+Only T_I_L is copied into [`configs/dataset/hilti22.yaml`](../configs/dataset/hilti22.yaml),
+and `lio-bench inspect` checks the copy against the file:
 
 - **T_I_L** (PandarXT-32, parent `imu`): q_xyzw = (0.7071068, −0.7071068, 0, 0), t =
   (−0.001, −0.00855, 0.055) m. This is a 180° rotation about (1, −1, 0)/√2: z_L → −z_I and

@@ -1,8 +1,6 @@
 import json
 import sys
 
-import pytest
-
 from lio_benchmark.tracking import (canonical_hash, flatten, init_run, read_run, update_run,
                                     write_metrics)
 
@@ -35,8 +33,3 @@ def test_offline_run_record_without_wandb(tmp_path):
     assert env["dataset_hashes"] and "git" in env and env["cpu_count"]
     assert "wandb" not in sys.modules
 
-
-def test_rejects_unknown_decision(tmp_path):
-    run_dir = init_run(tmp_path, "m", "exp14", "tune", {}, hypothesis="h", change="c")
-    with pytest.raises(ValueError):
-        update_run(run_dir, decision="maybe")

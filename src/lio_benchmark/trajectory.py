@@ -86,18 +86,13 @@ def validate(traj: Trajectory, name: str = "trajectory") -> None:
         raise TrajectoryError(f"{name}: timestamps not strictly increasing at row {i + 1}")
 
 
-def load_tum(path, convert_units: bool = True, check: bool = True) -> Trajectory:
-    """Load a TUM file. Timestamps in ns/us/ms are converted to seconds when detected."""
+def load_tum(path) -> Trajectory:
+    """Load and validate a TUM file. Timestamps in ns/us/ms are converted to seconds."""
     a = np.loadtxt(path, comments="#", ndmin=2)
     if a.shape[1] != 8:
         raise TrajectoryError(f"{path}: expected 8 columns (t x y z qx qy qz qw), got {a.shape[1]}")
-    t = a[:, 0]
-    if convert_units:
-        _, factor = detect_time_unit(t)
-        t = t * factor
-    traj = Trajectory(t, a[:, 1:4], a[:, 4:8])
-    if check:
-        validate(traj, str(path))
+    traj = Trajectory(a[:, 0] * detect_time_unit(a[:, 0])[1], a[:, 1:4], a[:, 4:8])
+    validate(traj, str(path))
     return traj
 
 
@@ -114,16 +109,11 @@ class SparsePoints:
 
 
 def load_sparse(path) -> SparsePoints:
-    """Load a Hilti `*_3dof.txt` control-point file (4, 5 or 8 columns; see module docstring)."""
+    """Load a Hilti `*_3dof.txt` control-point file (8 columns; see module docstring)."""
     a = np.loadtxt(path, comments="#", ndmin=2)
-    if a.shape[1] == 8:      # t x y z qx qy qz qw (what the files actually contain)
-        t, p = a[:, 0], a[:, 1:4]
-    elif a.shape[1] == 5:    # t id x y z (what the header describes)
-        t, p = a[:, 0], a[:, 2:5]
-    elif a.shape[1] == 4:    # t x y z
-        t, p = a[:, 0], a[:, 1:4]
-    else:
-        raise TrajectoryError(f"{path}: unsupported sparse layout with {a.shape[1]} columns")
+    if a.shape[1] != 8:
+        raise TrajectoryError(f"{path}: expected 8 columns (t x y z 0 0 0 1), got {a.shape[1]}")
+    t, p = a[:, 0], a[:, 1:4]
     if np.any(np.diff(t) <= 0):
         raise TrajectoryError(f"{path}: timestamps not strictly increasing")
     return SparsePoints(t, p)

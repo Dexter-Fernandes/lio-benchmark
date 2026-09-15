@@ -104,8 +104,8 @@ def cmd_data_convert(args) -> int:
 
 def cmd_inspect(args) -> int:
     from .inspection import inspect_sequence, summary_lines
-    m, root = _manifest(args), _data_root(args)
-    report = inspect_sequence(m, m.sequence(args.sequence), root, rest_seconds=args.rest_seconds)
+    report = inspect_sequence(_manifest(args).sequence(args.sequence), _data_root(args),
+                              rest_seconds=args.rest_seconds)
     print("\n".join(summary_lines(report)))
     print(f"\nwrote {report['_written_to']}")
     return 0
@@ -113,7 +113,6 @@ def cmd_inspect(args) -> int:
 
 def cmd_gt_check(args) -> int:
     import numpy as np
-    from .evaluation import evaluate
     from .trajectory import load_sparse, load_tum
     m, root = _manifest(args), _data_root(args)
     keys = [args.sequence] if args.sequence else list(m.sequences)
@@ -123,11 +122,10 @@ def cmd_gt_check(args) -> int:
         sp = load_sparse(root / s.ground_truth_sparse)
         dt = np.diff(gt.t)
         inside = ((sp.t >= gt.t[0]) & (sp.t <= gt.t[-1])).sum()
-        self_ate = evaluate(gt, gt).metrics["ate"]["trans_m"]["rmse"]
         print(f"{s.key} ({_split_of(m, s.key)}): {len(gt)} poses, {gt.duration:.1f} s, "
               f"{(len(gt) - 1) / gt.duration:.2f} Hz, max gap {dt.max():.3f} s, "
               f"path {np.linalg.norm(np.diff(gt.p, axis=0), axis=1).sum():.1f} m; "
-              f"sparse {len(sp.t)} points, {inside} inside dense span; self-ATE {self_ate:.1e} m")
+              f"sparse {len(sp.t)} points, {inside} inside dense span")
     return 0
 
 

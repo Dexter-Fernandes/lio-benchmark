@@ -29,7 +29,7 @@ three sequences, their MCAP conversions and the IMU noise recording.
 ```bash
 cp .env.example .env               # set LIO_DATA_ROOT to a directory on a large partition
 uv sync                            # host environment (Python 3.11)
-uv run pytest                      # 62 tests, no dataset needed
+uv run pytest                      # 60 tests, no dataset needed
 
 uv run lio-bench data status       # what is present / partial / verified / missing
 uv run lio-bench data download     # default groups: ground truth, calibration, IMU noise, 3 bags
@@ -74,7 +74,7 @@ project are set in `.env`.
 | Path | Purpose |
 |---|---|
 | `manifests/hilti22.yaml` | pinned revision, files, sizes, hashes, split, licence and citation |
-| `configs/dataset/` | topics, point layout, extrinsics, measured sensor facts |
+| `configs/dataset/` | topics and the LiDAR-IMU extrinsic shared by all methods |
 | `configs/eval/` | frozen evaluation parameters |
 | `src/lio_benchmark/` | download, convert, inspect, frames, evaluation, tracking, CLI |
 | `tests/` | hashing, downloads (local HTTP server), manifest, frames, trajectories, evaluator, conversion, run records |
