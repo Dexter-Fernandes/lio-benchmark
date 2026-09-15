@@ -260,7 +260,7 @@ def summary_lines(r: dict) -> list[str]:
         f"  lidar {li['topic']}: {li['count']} scans @ {li['rate_hz']:.2f} Hz, "
         f"{li['points_per_scan'].get('median', 0):.0f} pts/scan, point_step {li['layout']['point_step']}, "
         f"frame '{li['layout']['frame_id']}'",
-        f"    fields: " + ", ".join(f"{f['name']}:{f['datatype']}@{f['offset']}" for f in li["layout"]["fields"]),
+        "    fields: " + ", ".join(f"{f['name']}:{f['datatype']}@{f['offset']}" for f in li["layout"]["fields"]),
         f"    point time '{pt.get('field')}' unit={pt.get('unit')} spread median="
         f"{pt.get('per_scan_spread', {}).get('median', float('nan')):.4f} "
         f"min-header median={pt.get('per_scan_min_minus_header', {}).get('median', float('nan')):+.6f}",

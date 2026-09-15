@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from lio_benchmark.trajectory import (Trajectory, TrajectoryError, detect_time_unit, load_sparse,
+from lio_benchmark.trajectory import (TrajectoryError, detect_time_unit, load_sparse,
                                       load_tum, save_tum, validate)
 from tests.helpers import T0, loop
 

@@ -230,7 +230,7 @@ def sparse_errors(sparse: SparsePoints, est: Trajectory, T: SE3, cfg: EvalConfig
     a = associate(sparse.t, est, cfg.max_gap_s)
     err = np.linalg.norm(sparse.p[a.gt_idx] - T.act(a.est.p), axis=1) if len(a.gt_idx) else np.empty(0)
     per_point = [{"t": float(sparse.t[k]), "error_m": None} for k in range(len(sparse.t))]
-    for k, e in zip(a.gt_idx, err):
+    for k, e in zip(a.gt_idx, err, strict=True):
         per_point[k]["error_m"] = float(e)
     return {"n_points": int(len(sparse.t)), "n_covered": int(len(a.gt_idx)),
             "trans_m": stats(err), "points": per_point}
