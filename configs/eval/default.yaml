@@ -1,0 +1,14 @@
+# Frozen evaluation protocol (docs/protocol.md). Changing any value changes every reported
+# number: bump the file name (default_v2.yaml) instead of editing it once results exist.
+
+# Interpolate an estimate only between poses at most this far apart. LiDAR-rate estimators
+# emit poses every 0.1 s, so 0.25 s tolerates one dropped scan and never bridges two.
+max_gap_s: 0.25
+# Relative pose error intervals (seconds).
+rpe_deltas_s: [1.0, 10.0]
+# Pair tolerance around t_i + delta. Ground truth is ~10 Hz, so half a period.
+rpe_match_tol_s: 0.05
+# Runs covering less than this share of dense ground-truth samples are reported `incomplete`.
+min_coverage: 0.95
+# Fewer associated samples than this and the run is `failed` (no alignment attempted).
+min_pairs: 10

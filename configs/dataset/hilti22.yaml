@@ -1,0 +1,16 @@
+# Hilti-Oxford 2022 inputs shared by all methods. Measured sensor facts live in
+# docs/dataset.md and <data root>/_provenance/inspect/<seq>.json.
+#
+# Frames: W world (ground truth), I IMU (ground truth body frame), L LiDAR (Hesai PandarXT-32).
+# T_A_B maps points from B to A; quaternions are (x, y, z, w).
+# T_I_L is copied verbatim from lidar_calibration.yaml at manifest revision e62017f9;
+# `lio-bench inspect` checks it still matches the file in the data root.
+
+topics:
+  lidar: /hesai/pandar          # sensor_msgs/PointCloud2
+  imu: /alphasense/imu          # sensor_msgs/Imu
+
+extrinsics:
+  T_I_L:                     # "PandarXT-32", parent: imu
+    quaternion_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+    translation_m: [-0.001, -0.00855, 0.055]

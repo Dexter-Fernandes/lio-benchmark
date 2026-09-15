@@ -1,0 +1,29 @@
+{
+  // Python tools/evaluation container. Method containers (FAST-LIO2, ...) get their own
+  // .devcontainer/<method>/ directory when they are integrated.
+  // Requires LIO_DATA_ROOT to be set in the environment that launches VS Code.
+  "name": "lio-benchmark tools",
+  "build": {
+    "dockerfile": "../../docker/tools/Dockerfile",
+    "context": "../.."
+  },
+  "remoteUser": "dev",
+  "workspaceFolder": "/workspaces/lio-benchmark",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/lio-benchmark,type=bind",
+  "mounts": [
+    // Read-write in the devcontainer so data download/convert work; evaluation runs through
+    // scripts/in-tools.sh mount it read-only.
+    "source=${localEnv:LIO_DATA_ROOT},target=/data/hilti22,type=bind",
+    "source=${localWorkspaceFolder}/runs,target=/runs,type=bind"
+  ],
+  "initializeCommand": "mkdir -p runs",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestEnabled": true
+      }
+    }
+  }
+}

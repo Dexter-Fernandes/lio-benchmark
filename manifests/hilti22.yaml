@@ -1,0 +1,132 @@
+# Hilti-Oxford 2022 download manifest.
+#
+# Every size and hash below was read from the Hugging Face API at the pinned revision
+# (https://huggingface.co/api/datasets/Hilti-Research/hilti-slam-challenge-2022/tree/<revision>/<dir>)
+# on 2026-09-15. Large files are Git LFS objects whose SHA-256 is published by HF; small files
+# are plain git blobs, for which HF publishes only the git blob SHA-1 (`git hash-object`).
+# Do not edit hashes by hand: regenerate them from the API if the revision changes.
+
+dataset: hilti22
+source:
+  hub: huggingface
+  repo: Hilti-Research/hilti-slam-challenge-2022
+  repo_type: dataset
+  revision: e62017f907007fdc5ab8c721842e4ae7359d7f49   # lastModified 2026-08-10T11:15:08Z
+  url_template: "https://huggingface.co/datasets/{repo}/resolve/{revision}/{path}"
+  homepage: https://hilti-challenge.com/dataset-2022
+license:
+  id: CC-BY-NC-SA-3.0
+  url: https://creativecommons.org/licenses/by-nc-sa/3.0/
+  note: >-
+    Non-commercial use only; attribution required; adaptations under the same or a compatible
+    licence. Data and derived data are never committed to this repository.
+citation: >-
+  L. Zhang, M. Helmberger, L. F. T. Fu, D. Wisth, M. Camurri, D. Scaramuzza and M. Fallon,
+  "Hilti-Oxford Dataset: A Millimeter-Accurate Benchmark for Simultaneous Localization and
+  Mapping," IEEE Robotics and Automation Letters, 8(1):408-415, 2023. doi:10.1109/LRA.2022.3226077
+
+# Groups fetched by `lio-bench data download` when no --groups are given.
+default_groups: [core, imu_noise, "seq:exp14", "seq:exp16", "seq:exp18"]
+
+files:
+  # ---- core: ground truth and calibration (small, plain git blobs) ----------------------
+  - path: ground_truth/exp14_basement_2_imu.txt
+    size: 78222
+    group: core
+    hash: {git_blob_sha1: 89ab267bbb9cbc2e78eb443afc4e9b8f08acec19}
+  - path: ground_truth/exp14_basement_2_imu_3dof.txt
+    size: 238
+    group: core
+    hash: {git_blob_sha1: f765c04ce77cb100b0e6df086bfe1c4803827e97}
+  - path: ground_truth/exp16_attic_to_upper_gallery_2_imu.txt
+    size: 222627
+    group: core
+    hash: {git_blob_sha1: d60ea04840a7f819dd49d2512c786b2adc3b9e1f}
+  - path: ground_truth/exp16_attic_to_upper_gallery_2_imu_3dof.txt
+    size: 541
+    group: core
+    hash: {git_blob_sha1: 49449355fd0598abb57c115a4ee1808db4732c4d}
+  - path: ground_truth/exp18_corridor_lower_gallery_2_imu.txt
+    size: 88743
+    group: core
+    hash: {git_blob_sha1: c01fea006e68eb0cede035e07cc719fb08cf9b4f}
+  - path: ground_truth/exp18_corridor_lower_gallery_2_imu_3dof.txt
+    size: 185
+    group: core
+    hash: {git_blob_sha1: d01d766582f0c351fa798774c23c090ca0fd43b5}
+  - path: calibration/calibration_files/lidar_calibration.yaml
+    size: 747
+    group: core
+    hash: {git_blob_sha1: d9c9b4f025529394681b069543ad8d87c2d2a7dc}
+  - path: calibration/calibration_files/calib_3_cam0-1-camchain-imucam.yaml
+    size: 1971
+    group: core
+    hash: {git_blob_sha1: 69644f30c3fab564d19a4856e25e0e3027f1ee3b}
+
+  # ---- IMU noise characterisation recording --------------------------------------------
+  - path: calibration/imu_noise_calibration.bag
+    size: 138287461
+    group: imu_noise
+    hash: {sha256: 48f6b222568dc90a87db1e48fccfe94640b0c51a34c9be77ebf3ece770254c33}
+
+  # ---- sequence bags (ROS 1) ----------------------------------------------------------
+  - path: rosbags/exp14_basement_2.bag
+    size: 6260771085
+    group: "seq:exp14"
+    hash: {sha256: 18eea013076b8263ababf4f36eb68d331564a0a493262b006dc0dddc2aa85b82}
+  - path: rosbags/exp16_attic_to_upper_gallery_2.bag
+    size: 15523312816
+    group: "seq:exp16"
+    hash: {sha256: e340d874f0836f1637bfbc38b91216eadc18fd6c39fb5e83676a7b295dfcad80}
+  - path: rosbags/exp18_corridor_lower_gallery_2.bag
+    size: 8657654860
+    group: "seq:exp18"
+    hash: {sha256: 98373b52f207b9ace3914792b5604a6642f89441190cabca6acbaf1d17249280}
+
+  # ---- opt-in: not fetched by default ---------------------------------------------------
+  - path: laser_scans/sheldonian_full.e57
+    size: 5447128064
+    group: reference_scan
+    hash: {sha256: 46575d3eaf3169a24e24ba0013cc48610125ac842d6745e5e8156c6aecc59756}
+  - path: CAD/Phasma25.step
+    size: 44063572
+    group: cad
+    hash: {sha256: be3a009490c9b1057229d422017dac38146e9f02932ccab52c59d17f91ee0766}
+  - path: CAD/Phasma25.stl
+    size: 27258384
+    group: cad
+    hash: {sha256: a22349c038380e1d5f25149a404188bf46edfd909da955741e94964d5131747d}
+  - path: CAD/Phasma25_GOM_high_res.stl
+    size: 456151334
+    group: cad
+    hash: {sha256: b69f6fad2c8b7b0356e206096747d717207d7e393fcd611bf3fbf767a7ff74f6}
+
+# Sequences and the tuning/held-out split. Parameters are tuned on `tune` only and frozen
+# before any `heldout` sequence is evaluated. This is a held-out split within one dataset and
+# one sensor rig, not evidence of cross-sensor generalisation.
+sequences:
+  exp14:
+    name: exp14_basement_2
+    environment: Basement 2 (Sheldonian Theatre; official difficulty Medium)
+    bag: rosbags/exp14_basement_2.bag
+    rosbag2: rosbag2/exp14_basement_2        # derived, see _provenance/conversions/
+    ground_truth_dense: ground_truth/exp14_basement_2_imu.txt
+    ground_truth_sparse: ground_truth/exp14_basement_2_imu_3dof.txt
+  exp16:
+    name: exp16_attic_to_upper_gallery_2
+    environment: Attic to Upper Gallery 2 (Sheldonian Theatre; official difficulty Hard)
+    bag: rosbags/exp16_attic_to_upper_gallery_2.bag
+    rosbag2: rosbag2/exp16_attic_to_upper_gallery_2
+    ground_truth_dense: ground_truth/exp16_attic_to_upper_gallery_2_imu.txt
+    ground_truth_sparse: ground_truth/exp16_attic_to_upper_gallery_2_imu_3dof.txt
+  exp18:
+    name: exp18_corridor_lower_gallery_2
+    environment: Corridor Lower Gallery 2 (Sheldonian Theatre; official difficulty Hard)
+    bag: rosbags/exp18_corridor_lower_gallery_2.bag
+    rosbag2: rosbag2/exp18_corridor_lower_gallery_2
+    ground_truth_dense: ground_truth/exp18_corridor_lower_gallery_2_imu.txt
+    ground_truth_sparse: ground_truth/exp18_corridor_lower_gallery_2_imu_3dof.txt
+
+split:
+  tune: [exp14]
+  heldout: [exp16, exp18]
