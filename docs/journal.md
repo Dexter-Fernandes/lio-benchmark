@@ -71,3 +71,45 @@ lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
   defaults; a follow-up Allan-variance fit of those is the natural next candidate if further
   improvement is wanted, but this result is already a clear keep.
 - **Decision:** keep
+
+### 20260915T152627Z_fast_lio2_exp14
+- **Method / sequence / split:** fast_lio2 / exp14 / tune
+- **Parent:** `20260915T133833Z_fast_lio2_exp14`
+- **Hypothesis:** Measured point spacing on exp14 is ~0.36 cm at median range (1.1 m) and
+  ~3.4 cm at p99 range (10.2 m), derived from `points_per_scan` (60948.5 median / 32 rings =
+  0.189 deg azimuthal resolution). The default `filter_size_surf`/`filter_size_map` (0.5 m)
+  voxel-merges 15-140x more points than the scene's actual density, destroying local plane
+  detail in this close-range indoor sequence. A finer, indoor-scale voxel should preserve more
+  geometric structure for registration.
+- **Change:** `launch.filter_size_surf`/`filter_size_map`: 0.5 -> 0.2 (these are
+  `mapping_velodyne.launch` top-level params, not nested under `mapping:` in FAST-LIO2's own
+  schema — now recorded in `configs/fast_lio2/hilti22.yaml`'s `launch:` section so the
+  resolved config actually captures them, and read by `scripts/run_fast_lio2.sh`).
+- **Config hash:** `a4ef79abf697a2f56cc502c93223060ff802b1d2f1f81d12998a82cc721379a4`
+- **Result:** status ok, coverage 99.6% (686/689, unchanged); ATE RMSE 0.041 m (was 0.125),
+  median 0.027 m (was 0.079), p95 0.069 m (was 0.236), rot RMSE 0.83 deg (was 1.34); RPE 1 s
+  trans RMSE 0.019 m (was 0.033) / rot RMSE 0.27 deg (was 0.32); RPE 10 s trans RMSE 0.056 m
+  (was 0.126) / rot RMSE 0.67 deg (was 0.91).
+- **Interpretation:** Confirms the hypothesis strongly — every metric improved substantially,
+  ATE trans RMSE by 67%. The 0.5 m default was clearly far too coarse for this sequence.
+- **Decision:** keep
+
+### 20260915T152922Z_fast_lio2_exp14
+- **Method / sequence / split:** fast_lio2 / exp14 / tune
+- **Parent:** `20260915T133833Z_fast_lio2_exp14`
+- **Hypothesis:** Same measured point-spacing reasoning as the 0.2 m sibling; testing a more
+  aggressive 0.1 m voxel to see whether accuracy keeps improving with finer resolution or
+  starts to degrade.
+- **Change:** `launch.filter_size_surf`/`filter_size_map`: 0.5 -> 0.1 (sibling of
+  `20260915T152627Z`, same parent).
+- **Config hash:** `c0409dfd9d381d0660d1d14081de2d495cfebd51962789aba9a2dae9978ea1bc`
+- **Result:** status ok, coverage 99.6% (686/689, unchanged); ATE RMSE 0.080 m, median 0.056 m,
+  p95 0.144 m, rot RMSE 1.33 deg; RPE 1 s trans RMSE 0.033 m / rot RMSE 0.38 deg; RPE 10 s
+  trans RMSE 0.147 m / rot RMSE 1.40 deg.
+- **Interpretation:** Non-monotonic — finer is not always better. Vs. parent (0.5 m, still
+  untouched there): ATE trans improved (0.125->0.080) but ATE rot was flat (1.34->1.33) and
+  RPE 10 s got worse in both trans and rot. Vs. the 0.2 m sibling: strictly worse on every
+  metric. Likely cause: at 0.1 m the local map fragments into voxels with too few points to
+  fit a stable plane, especially at longer range, making registration noisier. 0.2 m is a
+  measured sweet spot for this sequence's point density, not the finest tested value.
+- **Decision:** revert

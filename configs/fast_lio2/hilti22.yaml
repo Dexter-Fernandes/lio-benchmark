@@ -11,10 +11,14 @@
 # - extrinsic_T/extrinsic_R are T_I_L (LiDAR -> IMU) from configs/dataset/hilti22.yaml,
 #   verified by frames.check_lidar_extrinsics; see docs/methods.md point 5.
 #
-# Tuned on exp14 (docs/journal.md run 20260915T133833Z_fast_lio2_exp14, kept):
-# - mapping.acc_cov/gyr_cov measured as std^2 over calibration/imu_noise_calibration.bag
-#   (`lio-bench imu-noise`) instead of the generic Velodyne-config defaults (0.1/0.1).
-#   b_acc_cov/b_gyr_cov (bias random-walk) are still untuned defaults.
+# Tuned on exp14 (docs/journal.md, both kept):
+# - 20260915T133833Z: mapping.acc_cov/gyr_cov measured as std^2 over
+#   calibration/imu_noise_calibration.bag (`lio-bench imu-noise`) instead of the generic
+#   Velodyne-config defaults (0.1/0.1). b_acc_cov/b_gyr_cov (bias random-walk) still untuned.
+# - 20260915T152627Z: launch.filter_size_surf/filter_size_map 0.5 -> 0.2, derived from the
+#   sequence's measured point spacing (0.36-3.4cm, far finer than the 0.5m outdoor-scale
+#   default). A sibling 0.1m candidate (run 20260915T152922Z) was strictly worse on every
+#   metric and reverted -- 0.2m is a measured sweet spot, not "finer is always better".
 
 common:
     lid_topic: "/hesai/pandar/fast_lio2"
@@ -51,3 +55,17 @@ publish:
 pcd_save:
     pcd_save_en: false
     interval: -1
+
+# Not part of FAST-LIO2's own rosparam schema: mapping_velodyne.launch sets these as flat,
+# top-level params (nh.param<...>("filter_size_surf", ...), not "mapping/filter_size_surf"),
+# so they can't live in the sections above. Recorded here anyway so the resolved config run
+# records actually capture the full configuration, per docs/protocol.md #6. Read by
+# scripts/run_fast_lio2.sh, not by FAST-LIO2 itself.
+launch:
+    feature_extract_enable: false
+    point_filter_num: 4
+    max_iteration: 3
+    filter_size_surf: 0.2
+    filter_size_map: 0.2
+    cube_side_length: 1000
+    runtime_pos_log_enable: false

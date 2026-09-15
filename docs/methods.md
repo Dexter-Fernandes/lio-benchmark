@@ -94,6 +94,15 @@ its `livox_ros_driver` build dependency, on `ros:noetic-ros-base` pinned by dige
   std, not a full Allan-variance fit), now baked into `configs/fast_lio2/hilti22.yaml` as
   3.677e-04/1.183e-05. Every metric improved, rotational ATE RMSE most (4.86 -> 1.34 deg).
   `b_acc_cov`/`b_gyr_cov` (bias random-walk) are still untuned defaults.
+- **Registration voxel size (tuned on exp14, `docs/journal.md` run
+  `20260915T152627Z_fast_lio2_exp14`, kept).** `filter_size_surf`/`filter_size_map` are
+  `mapping_velodyne.launch` top-level params (not nested under `mapping:` in FAST-LIO2's own
+  rosparam schema), now recorded in `configs/fast_lio2/hilti22.yaml`'s `launch:` section and
+  applied by `scripts/run_fast_lio2.sh`. The generic 0.5 m default voxel-merges 15-140x more
+  points than this sequence's measured point spacing (0.36-3.4 cm); shrinking to 0.2 m
+  improved every metric (ATE trans RMSE 0.125 -> 0.041 m). A sibling 0.1 m candidate (run
+  `20260915T152922Z_fast_lio2_exp14`) was strictly worse on every metric and reverted — 0.2 m
+  is a measured sweet spot, not "finer is always better".
 - **Extrinsics (point 5).** `extrinsic_T`/`extrinsic_R` in `configs/fast_lio2/hilti22.yaml`
   are `T_I_L` (confirmed **verify**: FAST-LIO2's README states extrinsic_T/R map LiDAR into
   IMU, i.e. `p_IMU = R * p_LiDAR + T`, the same convention as `T_I_L`), taken from

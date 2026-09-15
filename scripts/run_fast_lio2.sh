@@ -22,13 +22,13 @@ for _ in $(seq 1 30); do rostopic list >/dev/null 2>&1 && break; sleep 1; done
 rostopic list >/dev/null 2>&1 || { echo "roscore did not come up" >&2; exit 1; }
 
 rosparam load "${FAST_LIO2_CONFIG:-/configs/fast_lio2/hilti22.yaml}"
-rosparam set feature_extract_enable false
-rosparam set point_filter_num 4
-rosparam set max_iteration 3
-rosparam set filter_size_surf 0.5
-rosparam set filter_size_map 0.5
-rosparam set cube_side_length 1000
-rosparam set runtime_pos_log_enable false
+# mapping_velodyne.launch's top-level params: FAST-LIO2 reads these via nh.param("name", ...),
+# not nested under mapping/, so the yaml's `launch:` section (loaded to /launch/* above) is
+# copied to the top level the node actually reads. Single source of truth: FAST_LIO2_CONFIG.
+for name in feature_extract_enable point_filter_num max_iteration filter_size_surf \
+            filter_size_map cube_side_length runtime_pos_log_enable; do
+  rosparam set "$name" "$(rosparam get "/launch/$name")"
+done
 rosparam set /use_sim_time true
 
 python3 /adapters/fast_lio2/ros_node.py _in_topic:=/hesai/pandar _out_topic:=/hesai/pandar/fast_lio2 &
