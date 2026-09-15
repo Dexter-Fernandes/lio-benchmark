@@ -221,20 +221,37 @@ def cmd_run_close(args) -> int:
 
 
 def cmd_view(args) -> int:
-    import open3d as o3d
+    import subprocess
+
     pcd_path = Path(args.target)
     if pcd_path.suffix != ".pcd":
         pcd_path = paths.runs_root() / args.target / "map.pcd"  # bare run_id
     if not pcd_path.exists():
         print(f"error: not found: {pcd_path}", file=sys.stderr)
         return 1
+    png_path = pcd_path.with_name("map.png")
 
+    if args.png:
+        if not png_path.exists():
+            print(f"error: not found: {png_path} (run `lio-bench eval --run-dir` first)", file=sys.stderr)
+            return 1
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        subprocess.run([opener, str(png_path)], check=False)
+        return 0
+
+    import open3d as o3d
     print(f"loading {pcd_path} ({pcd_path.stat().st_size / 1e6:.0f} MB)...")
     pcd = o3d.io.read_point_cloud(str(pcd_path))
     if args.voxel > 0:
         pcd = pcd.voxel_down_sample(args.voxel)
     print(f"{len(pcd.points):,} points")
     o3d.visualization.draw_geometries([pcd], window_name=str(pcd_path))
+    # draw_geometries reports window-creation failures (e.g. GLFW/Wayland positioning errors)
+    # as C-level log lines that bypass Python's stderr entirely on some setups, so there is no
+    # reliable way to detect the failure here -- print the fallback unconditionally instead.
+    if png_path.exists():
+        print(f"(if no window appeared -- a known GLFW/Wayland issue on some setups -- "
+              f"run `lio-bench view {args.target} --png` instead)", file=sys.stderr)
     return 0
 
 
@@ -338,6 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("view", help="open a run's map.pcd in Open3D's interactive viewer")
     p.add_argument("target", help="run_id (resolves to runs/<id>/map.pcd) or a direct .pcd path")
     p.add_argument("--voxel", type=float, default=0.0, help="downsample voxel size in m, e.g. 0.05")
+    p.add_argument("--png", action="store_true", help="open the rendered map.png instead (skips Open3D/GLFW)")
     p.set_defaults(func=cmd_view)
     return ap
 
