@@ -174,6 +174,35 @@ def _imu_section(reader, conn, rest_seconds: float) -> dict:
     }
 
 
+def imu_noise(bag_path, log=print) -> dict:
+    """Per-axis white-noise std/variance from a static IMU recording, e.g.
+    calibration/imu_noise_calibration.bag.
+
+    ponytail: simple std over the whole (stationary) bag, not a full Allan-variance fit, so
+    this only gives the white-noise terms (acc_cov/gyr_cov), not the bias random-walk terms
+    (b_acc_cov/b_gyr_cov). Fit Allan variance's random-walk region if those need tuning too.
+    """
+    topic = dataset_config()["topics"]["imu"]
+    gyro, acc = [], []
+    log(f"reading {bag_path}")
+    with AnyReader([Path(bag_path)]) as reader:
+        by_topic = {c.topic: c for c in reader.connections}
+        if topic not in by_topic:
+            raise RuntimeError(f"{bag_path}: {topic} not found")
+        for c, _, raw in reader.messages(connections=[by_topic[topic]]):
+            msg = reader.deserialize(raw, c.msgtype)
+            gyro.append([msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z])
+            acc.append([msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z])
+    gyro, acc = np.array(gyro), np.array(acc)
+    gyr_std, acc_std = gyro.std(axis=0), acc.std(axis=0)
+    gyr_mean_std, acc_mean_std = float(gyr_std.mean()), float(acc_std.mean())
+    return {
+        "bag": str(bag_path), "topic": topic, "samples": len(gyro),
+        "gyr_std_rad_s": gyr_std.tolist(), "acc_std_m_s2": acc_std.tolist(),
+        "gyr_cov": gyr_mean_std ** 2, "acc_cov": acc_mean_std ** 2,
+    }
+
+
 def gravity_check(gt, t: float, acc_rest_I: np.ndarray) -> dict:
     """Angle between the at-rest specific force, rotated into W by the ground truth, and +z_W.
 

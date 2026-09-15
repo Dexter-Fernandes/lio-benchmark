@@ -111,6 +111,20 @@ def cmd_inspect(args) -> int:
     return 0
 
 
+def cmd_imu_noise(args) -> int:
+    from .download import write_json_atomic
+    from .inspection import imu_noise
+    from .paths import provenance_dir
+    root = _data_root(args)
+    report = imu_noise(root / args.bag)
+    out = provenance_dir(root) / "imu_noise.json"
+    write_json_atomic(out, report)
+    print(f"gyr_cov {report['gyr_cov']:.3e} (rad/s)^2, acc_cov {report['acc_cov']:.3e} (m/s^2)^2, "
+          f"from {report['samples']} samples")
+    print(f"wrote {out}")
+    return 0
+
+
 def cmd_gt_check(args) -> int:
     import numpy as np
     from .trajectory import load_sparse, load_tum
@@ -251,6 +265,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("sequence")
     p.add_argument("--rest-seconds", type=float, default=1.0, help="initial window assumed stationary")
     p.set_defaults(func=cmd_inspect)
+
+    p = sub.add_parser("imu-noise", help="measure per-axis IMU white-noise std/variance from a static bag")
+    p.add_argument("--bag", default="calibration/imu_noise_calibration.bag", help="path relative to the data root")
+    p.set_defaults(func=cmd_imu_noise)
 
     gt = sub.add_parser("gt", help="ground-truth checks").add_subparsers(dest="gt_command", required=True)
     p = gt.add_parser("check", help="validate dense and sparse ground truth (no bag needed)")

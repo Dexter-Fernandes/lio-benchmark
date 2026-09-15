@@ -21,7 +21,7 @@ trap 'kill $ROSCORE_PID ${ADAPTER_PID:-} ${EXPORT_PID:-} ${MAPPING_PID:-} 2>/dev
 for _ in $(seq 1 30); do rostopic list >/dev/null 2>&1 && break; sleep 1; done
 rostopic list >/dev/null 2>&1 || { echo "roscore did not come up" >&2; exit 1; }
 
-rosparam load /configs/fast_lio2/hilti22.yaml
+rosparam load "${FAST_LIO2_CONFIG:-/configs/fast_lio2/hilti22.yaml}"
 rosparam set feature_extract_enable false
 rosparam set point_filter_num 4
 rosparam set max_iteration 3
