@@ -141,3 +141,74 @@ lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
   the frozen config. A negative result, but a real one — worth recording per protocol §6.2
   rather than treated as if the sweep never ran.
 - **Decision:** revert (no trial promoted; baseline config unchanged)
+
+### 20260915T183220Z_fast_lio2_exp16 (held-out)
+- **Method / sequence / split:** fast_lio2 / exp16 / heldout
+- **Parent:** `20260915T152627Z_fast_lio2_exp14` (frozen baseline config)
+- **Hypothesis:** Held-out evaluation of the config frozen on exp14 (measured IMU noise
+  covariance + 0.2 m voxel; a 15-trial Bayesian sweep found nothing better). No changes made
+  in response to this result, per `docs/protocol.md` §6.
+- **Change:** None — held-out evaluation, config frozen.
+- **Config hash:** `a4ef79abf697a2f56cc502c93223060ff802b1d2f1f81d12998a82cc721379a4`
+- **Result:** status ok, coverage 99.9% (1998/2001); ATE RMSE 66.39 m, median 24.65 m, p95
+  178.35 m, rot RMSE 62.91°; RPE 1 s trans RMSE 6.07 m / rot RMSE 2.30° (1987 pairs); RPE 10 s
+  trans RMSE 45.11 m / rot RMSE 11.93° (1897 pairs).
+- **Interpretation:** Catastrophic divergence, not a coverage/dropout failure (coverage is
+  fine, no gaps). Inspecting the raw trajectory: positions stay in a sane range (roughly
+  -17..+13 m per axis, z rising to ~7 m — plausible for the "attic_to_upper_gallery"
+  multi-floor transition) for the first ~170 s, then blow up — at t=170s position is
+  `[12.6, -10.8, 0.9]`, by t=190s `[153, 140, 14]`, ending at `[330, 159, 60]` — an
+  exponentially accelerating runaway characteristic of an IESKF that lost tracking in a
+  degenerate area and never recovered. exp18 (below) shows the frozen config generalizes
+  reasonably to a held-out sequence in general, which makes this look like a sequence-specific
+  trigger (plausibly the attic transition itself) rather than evidence the tuning doesn't
+  transfer. Root cause of the trigger is not yet investigated — open.
+- **Decision:** investigate
+
+### 20260915T183321Z_fast_lio2_exp18 (held-out)
+- **Method / sequence / split:** fast_lio2 / exp18 / heldout
+- **Parent:** `20260915T152627Z_fast_lio2_exp14` (frozen baseline config)
+- **Hypothesis:** Held-out evaluation of the same frozen config. No changes made in response
+  to this result, per `docs/protocol.md` §6.
+- **Change:** None — held-out evaluation, config frozen.
+- **Config hash:** `a4ef79abf697a2f56cc502c93223060ff802b1d2f1f81d12998a82cc721379a4`
+- **Result:** status ok, coverage 99.6% (786/789); ATE RMSE 0.2068 m, median 0.1496 m, p95
+  0.3747 m, rot RMSE 2.258°; RPE 1 s trans RMSE 0.0540 m / rot RMSE 0.708° (718 pairs); RPE
+  10 s trans RMSE 0.2163 m / rot RMSE 2.221° (616 pairs).
+- **Interpretation:** A normal, bounded generalization gap, not a failure — accuracy degrades
+  roughly 5x on translation and 2.7x on rotation versus exp14 (the sequence the config was
+  tuned on), consistent with applying a frozen config to a different scene without further
+  tuning. RPE stays sane at both 1 s and 10 s (no runaway growth), unlike exp16's divergence.
+  This is evidence the frozen config generalizes reasonably in general.
+- **Decision:** keep
+
+### Map capture repeats (`_mapcapture`, 20260915T1905-1907Z) — pcd_save_en, rate 1.0, no sim-time
+- **Method / sequence / split:** fast_lio2 / exp14+exp16+exp18 / tune+heldout
+- **Parents:** `20260915T133833Z_fast_lio2_exp14`, `20260915T152627Z_fast_lio2_exp14`,
+  `20260915T183220Z_fast_lio2_exp16`, `20260915T183321Z_fast_lio2_exp18` (one repeat each)
+- **Hypothesis:** Not a tuning attempt — repeats of the four runs above to capture the map
+  artifact (`pcd_save.pcd_save_en`, previously off) now that `configs/fast_lio2/hilti22.yaml`
+  enables it by default, and at the new default playback rate 1.0 (was 0.5, real-time rather
+  than half-speed).
+- **Change:** `pcd_save.pcd_save_en: false -> true`; playback rate 0.5 -> 1.0. Also fixed a
+  real bug found while implementing this: `scripts/run_fast_lio2.sh` set `/use_sim_time true`
+  and played the bag with `rosbag play --clock`, but FAST-LIO2's `fastlio_mapping` only saves
+  its PCD map on `SIGINT` (its registered signal handler) — and `ros::Rate::sleep()` in its
+  main loop blocks on `/clock` under sim time, which stops advancing the moment `rosbag play`
+  finishes. The node's main loop (which only checks the shutdown flag between `rate.sleep()`
+  calls) could never wake up to see it, so it hung forever after `SIGINT` and no map was ever
+  written even with `pcd_save_en` on. Fixed by dropping `--clock`/`use_sim_time` entirely
+  (FAST-LIO2 and the adapters key off each message's own `header.stamp`, never
+  `ros::Time::now()`, so wall-clock ROS time costs nothing and sidesteps the freeze).
+- **Result:** All 4 repeats reproduced their parent's metrics almost exactly (e.g. exp16:
+  66.39 m / 62.91° both times, confirming the divergence is deterministic here, not a fluke),
+  confirming the sim-time removal and rate change don't change estimation behavior. Each
+  produced a `map.pcd` (337-905 MB) and a rendered `map.png` (`plots.plot_pcd_map`, Open3D
+  headless/EGL, top-down orthographic, colored by height). exp16's map is the notable one: a
+  clean, coherent multi-room structure for the pre-divergence portion of the trajectory, then
+  a dense tangled mass of misregistered points where the filter diverged — visual confirmation
+  of the failure described above.
+- **Interpretation:** Artifact-capture repeats, not new findings; each keeps its parent's
+  decision. Useful side effect: independently confirms run-to-run determinism for this method
+  on this hardware (protocol §6.1 calls for checking this).
+- **Decision:** keep (exp14 x2, exp18); investigate (exp16, matching its parent)

@@ -53,7 +53,10 @@ publish:
     scan_bodyframe_pub_en: true
 
 pcd_save:
-    pcd_save_en: false
+    # Output setting, not a tuning parameter -- doesn't feed back into estimation, only
+    # whether/how the accumulated map is written. interval -1: one map.pcd per run, copied
+    # out by scripts/run_fast_lio2.sh and rendered to map.png (plots.plot_pcd_map).
+    pcd_save_en: true
     interval: -1
 
 # Not part of FAST-LIO2's own rosparam schema: mapping_velodyne.launch sets these as flat,

@@ -14,9 +14,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-import yaml
-
 import wandb
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fast_lio2_candidate import BASE_CONFIG, apply_overrides
@@ -74,7 +73,7 @@ def run_trial():
                    "20260915T133833Z; voxel-size sweet spot bracketed 0.1-0.4m, "
                    "docs/journal.md 20260915T152627Z/20260915T152922Z)."),
         change=", ".join(overrides), parent=PARENT_RUN_ID, label="sweep",
-        playback_rate=0.5, dataset_hashes=hashes)
+        playback_rate=1.0, dataset_hashes=hashes)
 
     with tempfile.TemporaryDirectory() as tmp:
         candidate_path = Path(tmp) / "candidate.yaml"
@@ -87,7 +86,7 @@ def run_trial():
             "-v", f"{candidate_path}:/configs/fast_lio2/override.yaml:ro",
             "-e", "FAST_LIO2_CONFIG=/configs/fast_lio2/override.yaml",
             IMAGE, "/run_fast_lio2.sh", f"/data/hilti22/{seq.bag}",
-            "/run_out/raw_fast_lio2.tum", "600", "0.5",
+            "/run_out/raw_fast_lio2.tum", "600", "1.0",
         ], capture_output=True, text=True)
 
     if proc.returncode != 0 or not raw_tum.exists() or raw_tum.stat().st_size == 0:

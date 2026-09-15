@@ -104,10 +104,28 @@ its `livox_ros_driver` build dependency, on `ros:noetic-ros-base` pinned by dige
   `20260915T152922Z_fast_lio2_exp14`) was strictly worse on every metric and reverted — 0.2 m
   is a measured sweet spot, not "finer is always better".
 - **Bayesian sweep (phase 2, `docs/protocol.md` §6.2, `docs/journal.md` sweep `yf5zcpr1`).**
-  16 trials over the region phase 1 established (noise covariance, voxel size, plus
+  15 trials over the region phase 1 established (noise covariance, voxel size, plus
   previously-untried `point_filter_num`/`max_iteration`), `scripts/fast_lio2_sweep.py`. No
   trial beat the manually-tuned baseline on both ATE trans and rot RMSE together — a negative
   result; the config is unchanged.
+- **Held-out evaluation (`docs/journal.md`).** The frozen config (tune-split, exp14) was run
+  on exp16 and exp18 unchanged. exp18: a normal, bounded generalization gap (ATE trans RMSE
+  0.207 m, rot RMSE 2.26°, roughly 5x/2.7x worse than exp14 — no runaway RPE). exp16: a
+  catastrophic, reproducible divergence (ATE trans RMSE 66.4 m, rot RMSE 62.9°) starting
+  around t=170-180s of a 200s sequence and never recovering — status **open, not tuned
+  around** per protocol §6 (held-out results don't feed back into the frozen config). Root
+  cause not yet investigated.
+- **Map artifacts.** `pcd_save.pcd_save_en: true` (was `false`) in `configs/fast_lio2/
+  hilti22.yaml` — an output setting, not a tuning parameter. `scripts/run_fast_lio2.sh` sends
+  `SIGINT` to `fastlio_mapping` before shutdown (FAST-LIO2 only saves its map there, never on
+  plain `kill`/SIGTERM) and copies the resulting `map.pcd` into the run directory;
+  `lio-bench eval --run-dir` renders it to `map.png` (`plots.plot_pcd_map`, Open3D headless
+  EGL, top-down orthographic, colored by height). Also fixed while implementing this: dropped
+  `rosbag play --clock`/`use_sim_time` entirely, since it made `fastlio_mapping`'s shutdown
+  hang forever once bag playback ended (`ros::Rate::sleep()` blocks on `/clock`, which stops
+  advancing) — FAST-LIO2 and the adapters only ever use message `header.stamp`, never
+  `ros::Time::now()`, so this cost nothing and fixed a real bug. Default playback rate is now
+  1.0 (real-time; was 0.5).
 - **Extrinsics (point 5).** `extrinsic_T`/`extrinsic_R` in `configs/fast_lio2/hilti22.yaml`
   are `T_I_L` (confirmed **verify**: FAST-LIO2's README states extrinsic_T/R map LiDAR into
   IMU, i.e. `p_IMU = R * p_LiDAR + T`, the same convention as `T_I_L`), taken from

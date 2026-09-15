@@ -174,6 +174,10 @@ def cmd_eval(args) -> int:
         (out / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
     if not args.no_plots:
         plot_evaluation(gt, result, out, f"{seq.key} {Path(args.estimate).stem}")
+        pcd = Path(args.estimate).parent / "map.pcd"
+        if pcd.exists():
+            from .plots import plot_pcd_map
+            plot_pcd_map(pcd, out / "map.png", f"{seq.key} {Path(args.estimate).stem}")
 
     c = metrics["coverage"]
     print(f"status {metrics['status']}  coverage {c['coverage']:.1%} ({c['n_associated']}/{c['n_gt']})"

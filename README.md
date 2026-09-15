@@ -3,10 +3,11 @@
 Reproducible LiDAR-inertial odometry benchmarking on Hilti-Oxford 2022, with containerised
 pipelines, W&B experiment tracking, and held-out trajectory evaluation.
 
-> **Status:** first milestone reached. The data pipeline, bag inspection, gap-aware
-> evaluator, run records and protocol are in place and tested, and FAST-LIO2 has one
-> verified end-to-end baseline run on exp14 (untuned, `docs/journal.md`). No other method
-> is integrated, and exp16/exp18 are still held out.
+> **Status:** FAST-LIO2 is tuned (measured IMU noise covariance + a measured registration
+> voxel size; a 15-trial Bayesian sweep found nothing better) and evaluated held-out on
+> exp16/exp18. exp18 shows a normal generalization gap; exp16 diverges reproducibly partway
+> through and is an open failure-analysis case (`docs/journal.md`). No other method is
+> integrated yet.
 
 ## Scope
 
@@ -63,6 +64,8 @@ Each run is a directory under `runs/` (configurable with `LIO_RUNS_ROOT`) holdin
 - the resolved configuration and its hash;
 - the environment and dataset hashes;
 - the hypothesis, change, metrics, trajectory and plots;
+- for methods that save a map (FAST-LIO2: `pcd_save.pcd_save_en`), the map itself (`map.pcd`)
+  and a rendered top-down view (`map.png`, `lio-bench eval` calls `plots.plot_pcd_map`);
 - the decision.
 
 `lio-bench log <run_dir>` mirrors a run to Weights & Biases; `WANDB_MODE` defaults to
