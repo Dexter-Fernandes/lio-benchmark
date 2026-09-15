@@ -13,6 +13,31 @@ from .evaluation import EvalResult  # noqa: E402
 from .trajectory import Trajectory  # noqa: E402
 
 
+def _line_set(points: np.ndarray):
+    import open3d as o3d
+    n = len(points)
+    lines = np.column_stack([np.arange(n - 1), np.arange(1, n)])
+    return o3d.geometry.LineSet(points=o3d.utility.Vector3dVector(points),
+                                lines=o3d.utility.Vector2iVector(lines))
+
+
+def trajectory_geometries(gt: Trajectory, result: EvalResult):
+    """Ground truth (gray) and SE(3)-aligned estimate (colored by per-pose ATE trans, turbo
+    colormap) as Open3D LineSets, for 3D deviation inspection -- e.g. `lio-bench view --traj`.
+    """
+    import open3d as o3d
+
+    g = gt.subset(result.assoc.gt_idx)
+    gt_lines = _line_set(g.p)
+    gt_lines.paint_uniform_color([0.55, 0.55, 0.55])
+
+    est_lines = _line_set(result.aligned.p)
+    err = result.ate_trans
+    err_norm = err / max(err.max(), 1e-6)
+    est_lines.colors = o3d.utility.Vector3dVector(plt.get_cmap("turbo")(err_norm)[:-1, :3])
+    return gt_lines, est_lines
+
+
 def plot_evaluation(gt: Trajectory, result: EvalResult, out_dir: Path, title: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     if result.aligned is None:

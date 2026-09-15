@@ -223,6 +223,9 @@ def cmd_run_close(args) -> int:
 def cmd_view(args) -> int:
     import subprocess
 
+    if args.traj:
+        return _view_trajectory(args)
+
     pcd_path = Path(args.target)
     if pcd_path.suffix != ".pcd":
         pcd_path = paths.runs_root() / args.target / "map.pcd"  # bare run_id
@@ -252,6 +255,53 @@ def cmd_view(args) -> int:
     if png_path.exists():
         print(f"(if no window appeared -- a known GLFW/Wayland issue on some setups -- "
               f"run `lio-bench view {args.target} --png` instead)", file=sys.stderr)
+    return 0
+
+
+def _view_trajectory(args) -> int:
+    import subprocess
+
+    from .evaluation import EvalConfig, evaluate
+    from .tracking import read_run
+    from .trajectory import load_sparse, load_tum
+    run_dir = paths.runs_root() / args.target
+    if not run_dir.is_dir():
+        print(f"error: not found: {run_dir}", file=sys.stderr)
+        return 1
+    run = read_run(run_dir)
+
+    if args.png:
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        pngs = [p for p in (run_dir / "trajectory_xy.png", run_dir / "ate_over_time.png") if p.exists()]
+        if not pngs:
+            print(f"error: no plots in {run_dir} (run `lio-bench eval --run-dir` first)", file=sys.stderr)
+            return 1
+        for p in pngs:
+            subprocess.run([opener, str(p)], check=False)
+        return 0
+
+    m, root = _manifest(args), _data_root(args)
+    seq = m.sequence(run["sequence"])
+    gt = load_tum(root / seq.ground_truth_dense)
+    sparse = load_sparse(root / seq.ground_truth_sparse)
+    est = load_tum(run_dir / "trajectory.tum")
+    cfg = EvalConfig.from_yaml(paths.repo_root() / "configs/eval/default.yaml")
+    result = evaluate(gt, est, cfg, sparse=sparse)
+    if result.aligned is None:
+        print(f"error: evaluation failed: {result.metrics['reasons']}", file=sys.stderr)
+        return 1
+
+    from .plots import trajectory_geometries
+    gt_lines, est_lines = trajectory_geometries(gt, result)
+    a = result.metrics["ate"]["trans_m"]
+    print(f"ATE trans: rmse {a['rmse']:.4f} m, max {a['max']:.4f} m -- "
+          "estimate colored by per-pose deviation (turbo: blue=low, red=high), gray=ground truth")
+
+    import open3d as o3d
+    o3d.visualization.draw_geometries([gt_lines, est_lines],
+                                      window_name=f"{args.target}: GT (gray) vs estimate (turbo=ATE)")
+    print(f"(if no window appeared -- a known GLFW/Wayland issue on some setups -- "
+          f"run `lio-bench view {args.target} --traj --png` instead)", file=sys.stderr)
     return 0
 
 
@@ -352,10 +402,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--entity", help="default: $WANDB_ENTITY or .env, else your default entity")
     p.set_defaults(func=cmd_report)
 
-    p = sub.add_parser("view", help="open a run's map.pcd in Open3D's interactive viewer")
-    p.add_argument("target", help="run_id (resolves to runs/<id>/map.pcd) or a direct .pcd path")
-    p.add_argument("--voxel", type=float, default=0.0, help="downsample voxel size in m, e.g. 0.05")
-    p.add_argument("--png", action="store_true", help="open the rendered map.png instead (skips Open3D/GLFW)")
+    p = sub.add_parser("view", help="open a run's map.pcd, or --traj to compare GT vs estimate")
+    p.add_argument("target", help="run_id, or a direct .pcd path when not using --traj")
+    p.add_argument("--traj", action="store_true",
+                   help="view ground truth vs SE(3)-aligned estimate as 3D lines, colored by ATE deviation")
+    p.add_argument("--voxel", type=float, default=0.0, help="downsample voxel size in m, e.g. 0.05 (map view only)")
+    p.add_argument("--png", action="store_true", help="open the rendered plot(s) instead (skips Open3D/GLFW)")
     p.set_defaults(func=cmd_view)
     return ap
 
