@@ -1,0 +1,45 @@
+# Hilti-Oxford 2022: sensor topics, point layout, frames and extrinsics shared by all methods.
+#
+# Frames: W world (ground truth), I IMU (ground truth body frame), L LiDAR (Hesai PandarXT-32).
+# T_A_B maps points from B to A; quaternions are (x, y, z, w).
+# Sources:
+#   calibration  lidar_calibration.yaml at manifest revision e62017f9 (values copied verbatim;
+#                `lio-bench inspect` checks they still match the file in the data root)
+#   sensors      Zhang et al., RA-L 2023 (arXiv 2208.09825)
+#   measured     `lio-bench inspect <seq>` -> <data root>/_provenance/inspect/<seq>.json
+
+topics:
+  lidar: /hesai/pandar          # sensor_msgs/PointCloud2
+  imu: /alphasense/imu          # sensor_msgs/Imu
+
+sensors:
+  lidar:
+    model: Hesai PandarXT-32
+    channels: 32
+    nominal_rate_hz: 10
+    # PointCloud2 layout (Hesai PointXYZIT); per-point `timestamp` is absolute epoch seconds.
+    fields: {x: float32@0, y: float32@4, z: float32@8, intensity: float32@16, timestamp: float64@24, ring: uint16@32}
+    point_step: 48
+    point_time_field: timestamp
+    point_time_unit: seconds_absolute
+  imu:
+    model: Bosch BMI085      # 6-axis: accelerometer + gyroscope, no magnetometer
+    nominal_rate_hz: 400
+
+extrinsics:
+  T_I_L:                     # "PandarXT-32", parent: imu
+    quaternion_xyzw: [0.7071068, -0.7071068, 0.0, 0.0]
+    translation_m: [-0.001, -0.00855, 0.055]
+  T_I_T:                     # "measurement_tip", parent: imu (not used by odometry)
+    quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+    translation_m: [0.059, -0.00855, 0.1964]
+
+imu_intrinsics:              # verbatim from lidar_calibration.yaml
+  bias_a: [0.06080652138668933, 0.08353074835853214, 0.057072968234636895]
+  bias_g: [-0.0015351229643790084, -0.0013449146576507546, 0.00030127855524786183]
+  gravity: [0.01165152782783894, 9.804989173462031, -0.008749296634685332]
+
+# Filled from `lio-bench inspect` (see docs/dataset.md). Until then these are ranger-lio's
+# exp14 measurements (2026-09-11) and are marked unverified.
+measured:
+  status: unverified-from-ranger-lio
