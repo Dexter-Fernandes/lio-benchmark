@@ -87,6 +87,13 @@ its `livox_ros_driver` build dependency, on `ros:noetic-ros-base` pinned by dige
   2). `configs/fast_lio2/hilti22.yaml` sets `preprocess.timestamp_unit: 0` (seconds) to match.
 - **Blind zone (point 4).** Set to 0.1 m, below the measured p01 range (0.17-0.20 m across
   exp14/16/18), so real short-range returns from the handheld rig are not dropped.
+- **IMU noise covariance (tuned on exp14, `docs/journal.md` run
+  `20260915T133833Z_fast_lio2_exp14`, kept).** `mapping.acc_cov`/`gyr_cov` were the generic
+  Velodyne-config defaults (0.1/0.1); `lio-bench imu-noise` measures per-axis white-noise
+  variance from `calibration/imu_noise_calibration.bag` (`inspection.py::imu_noise`, a simple
+  std, not a full Allan-variance fit), now baked into `configs/fast_lio2/hilti22.yaml` as
+  3.677e-04/1.183e-05. Every metric improved, rotational ATE RMSE most (4.86 -> 1.34 deg).
+  `b_acc_cov`/`b_gyr_cov` (bias random-walk) are still untuned defaults.
 - **Extrinsics (point 5).** `extrinsic_T`/`extrinsic_R` in `configs/fast_lio2/hilti22.yaml`
   are `T_I_L` (confirmed **verify**: FAST-LIO2's README states extrinsic_T/R map LiDAR into
   IMU, i.e. `p_IMU = R * p_LiDAR + T`, the same convention as `T_I_L`), taken from

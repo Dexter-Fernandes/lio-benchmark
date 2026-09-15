@@ -10,6 +10,11 @@
 #   short-range returns from the handheld rig are kept.
 # - extrinsic_T/extrinsic_R are T_I_L (LiDAR -> IMU) from configs/dataset/hilti22.yaml,
 #   verified by frames.check_lidar_extrinsics; see docs/methods.md point 5.
+#
+# Tuned on exp14 (docs/journal.md run 20260915T133833Z_fast_lio2_exp14, kept):
+# - mapping.acc_cov/gyr_cov measured as std^2 over calibration/imu_noise_calibration.bag
+#   (`lio-bench imu-noise`) instead of the generic Velodyne-config defaults (0.1/0.1).
+#   b_acc_cov/b_gyr_cov (bias random-walk) are still untuned defaults.
 
 common:
     lid_topic: "/hesai/pandar/fast_lio2"
@@ -25,8 +30,8 @@ preprocess:
     blind: 0.1
 
 mapping:
-    acc_cov: 0.1
-    gyr_cov: 0.1
+    acc_cov: 3.677e-04
+    gyr_cov: 1.183e-05
     b_acc_cov: 0.0001
     b_gyr_cov: 0.0001
     fov_degree: 360
