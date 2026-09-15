@@ -302,22 +302,56 @@ lio-bench log "$run"          # mirror to W&B (online unless WANDB_MODE=offline)
   adapter, see the sweep entry) far more likely than sequence-specific bad luck.
 - **Decision:** investigate
 
+### 20260915T222509Z_lio_sam_exp14 (diagnostic, not a sweep trial or kept tuning change)
+- **Method / sequence / split:** lio_sam / exp14 / tune
+- **Parent:** `20260915T214917Z_lio_sam_exp14` (baseline)
+- **Hypothesis:** Is the systemic 100+ deg rotation failure (baseline + all 8 sweep trials +
+  both held-out runs) coming from the Madgwick-synthesized orientation being fed into
+  `mapOptmization`'s pose graph via `imuRPYWeight`? If rotation RMSE improves substantially
+  with `imuRPYWeight=0`, that confirms the orientation adapter (or its influence on the
+  graph) as the cause.
+- **Change:** `imuRPYWeight: 0.01 -> 0.0` only, isolated single-param diagnostic.
+- **Result:** ATE trans RMSE **349.10 -> 29.31 m** (>10x better), ATE rot RMSE **124.74 ->
+  129.14 deg** (unchanged, marginally worse). RPE 1s rot RMSE improved 64.03 -> 26.58 deg, but
+  RPE 10s rot RMSE stayed large at 81.97 deg.
+- **Interpretation:** Partially confirms and partially falsifies the sweep entry's hypothesis.
+  `imuRPYWeight` *was* corrupting translation badly via the coupled 6-DoF pose-graph
+  optimization -- a real, now-isolated effect. But it is **not** the primary cause of the
+  rotation failure itself, which barely moved. Since raw gyro/accel (not the synthesized
+  orientation) drive IMU preintegration directly via `extrinsicRot`, and that path is
+  unaffected by `imuRPYWeight`, the remaining rotation error more likely comes from IMU
+  preintegration or scan-matching itself, not specifically the RPY soft-constraint. The
+  extrinsic rotation was re-checked (proper rotation, determinant +1, not a reflection) and
+  doesn't look like the cause either. Not conclusive -- genuinely open, and squarely the kind
+  of investigation phase-1 manual tuning (explicitly skipped for this method) exists to do.
+- **Decision:** investigate. **Do not treat `imuRPYWeight=0` as a fix** -- it's a useful data
+  point (isolates one real contributing factor to translation) but does not resolve the
+  rotation failure that makes this integration untrustworthy for comparison.
+
 ### LIO-SAM integration summary
 Every run in this integration — the exp14 baseline, all 8 sweep trials, and both held-out
 evaluations — shares the same catastrophic rotation failure (ATE rot RMSE 100-170 degrees
 regardless of config), while translation error varies with the sampled params. This is a
 genuine, unresolved integration problem, not a normal tuning gap or generalization gap like
-FAST-LIO2's. The most likely structural cause, not yet isolated: the Madgwick orientation
-adapter (`adapters/lio_sam/orientation_filter.py`) assumes near-static conditions to treat
-the accelerometer as a gravity reference for its tilt correction, an assumption this
-handheld, fast-moving rig genuinely violates during motion — feeding a corrupted roll/pitch
-into `mapOptmization`'s pose graph via `imuRPYWeight`. Root-causing this is exactly the kind
-of phase-1 manual/hypothesis-driven investigation `docs/protocol.md` §6.1 exists for; it was
-explicitly skipped for this method per the confirmed decision to go straight to a wide
-Bayesian sweep, and its absence is the direct, now-visible cost of that choice. This
-integration should not be presented as a working baseline for cross-method comparison until
-that root cause is found and fixed — see `docs/methods.md` "LIO-SAM integration" and
-`HANDOFF.md` for the next agent.
+FAST-LIO2's.
+
+The `imuRPYWeight` diagnostic above (`20260915T222509Z_lio_sam_exp14`) both confirmed and
+narrowed the search: the Madgwick-synthesized orientation *was* corrupting translation badly
+through `mapOptmization`'s pose-graph RPY factor (fixing it cut ATE trans RMSE by >10x), but
+rotation RMSE barely moved (124.7 -> 129.1 deg) — so the orientation adapter's RPY
+soft-constraint is not, by itself, the dominant cause of the rotation failure. The remaining
+candidates, none yet isolated: IMU preintegration or scan-matching itself producing bad
+rotation estimates independent of the RPY factor (raw gyro/accel, not synthesized
+orientation, drive preintegration via `extrinsicRot`, and that path is unaffected by
+`imuRPYWeight`); `Horizon_SCAN: 1800` (a datasheet estimate, not measured) degrading
+feature-based rotation estimation; or something in the evaluation/alignment step itself
+(less likely — the same evaluator handles FAST-LIO2 correctly). Root-causing this fully is
+exactly the kind of phase-1 manual/hypothesis-driven investigation `docs/protocol.md` §6.1
+exists for; it was explicitly skipped for this method per the confirmed decision to go
+straight to a wide Bayesian sweep, and its absence is the direct, now-visible cost of that
+choice. This integration should not be presented as a working baseline for cross-method
+comparison until the rotation failure is fully root-caused and fixed — see
+`docs/methods.md` "LIO-SAM integration" and `HANDOFF.md` for the next agent.
 
 ### Map capture repeats (`_mapcapture`, 20260915T1905-1907Z) — pcd_save_en, rate 1.0, no sim-time
 - **Method / sequence / split:** fast_lio2 / exp14+exp16+exp18 / tune+heldout

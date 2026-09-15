@@ -254,14 +254,21 @@ master at integration time), on `ros:noetic-ros-base` (same pinned digest as `fa
   8 sweep trials, and both held-out runs (`docs/journal.md`) share one pattern: ATE rotation
   RMSE stays 100-170 deg in every single run regardless of config, while translation error
   varies with the sampled params. This is not a normal tuning or generalization gap like
-  FAST-LIO2's -- it is a structural failure, most plausibly the Madgwick orientation adapter's
-  accel-based tilt correction breaking down under this handheld rig's real motion (the filter
-  assumes near-static conditions to treat the accelerometer as a gravity reference; this rig
-  doesn't provide that). Root-causing this is exactly what phase-1 manual investigation
-  (`docs/protocol.md` §6.1) exists to catch before a sweep, and it was explicitly skipped for
-  this method (confirmed decision) -- its absence is the direct, visible cost, not a silent
-  one. **Do not use this integration for cross-method comparison until the rotation failure
-  is isolated and fixed.**
+  FAST-LIO2's -- it is a structural failure. A diagnostic run
+  (`20260915T222509Z_lio_sam_exp14`, `docs/journal.md`) zeroed `imuRPYWeight` (removing the
+  Madgwick-synthesized orientation's influence on `mapOptmization`'s pose graph): translation
+  improved dramatically (ATE trans RMSE 349.1 -> 29.3 m, >10x), confirming that constraint
+  *was* corrupting translation, but rotation RMSE barely moved (124.7 -> 129.1 deg) -- so the
+  orientation adapter's RPY soft-constraint is **not**, by itself, the dominant cause of the
+  rotation failure. Remaining candidates, none yet isolated: IMU preintegration/scan-matching
+  producing bad rotation independent of the RPY factor (raw gyro/accel drive preintegration
+  via `extrinsicRot`, unaffected by `imuRPYWeight`); `Horizon_SCAN: 1800` (a datasheet
+  estimate, not measured) degrading feature-based rotation estimation; or, less likely,
+  something in evaluation/alignment itself. Root-causing this fully is exactly what phase-1
+  manual investigation (`docs/protocol.md` §6.1) exists to catch before a sweep, and it was
+  explicitly skipped for this method (confirmed decision) -- its absence is the direct,
+  visible cost, not a silent one. **Do not use this integration for cross-method comparison
+  until the rotation failure is fully root-caused and fixed.**
 
 ## Exclusions
 

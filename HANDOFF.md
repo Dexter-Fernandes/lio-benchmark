@@ -134,25 +134,30 @@ integration"):
    incomplete; exp18: ATE trans RMSE 286.5 m, rot RMSE 147.2 deg, status incomplete) — the
    same rotation-failure pattern, a third time, on different sequences.
 
-**Diagnosis (not yet confirmed — the next action item):** the total absence of any trend in
-rotation RMSE across 9 different parameter configurations and 3 different sequences points at
-something the sweep's params can't reach — most plausibly the Madgwick orientation adapter's
-accel-based tilt correction, which assumes near-static conditions to treat the accelerometer
-as a gravity reference. This handheld, fast-moving rig genuinely violates that assumption
-during motion, and the resulting bad roll/pitch feeds into `mapOptmization`'s pose graph via
-`imuRPYWeight`. **This is exactly the failure mode phase-1 manual/hypothesis-driven
-investigation exists to catch before a sweep** — its absence here (a decision confirmed with
-the user this session) has a direct, now-visible cost.
+**Diagnostic run done this session (`20260915T222509Z_lio_sam_exp14`, `imuRPYWeight:
+0.01 -> 0.0`, `docs/journal.md`):** this both confirmed and narrowed the hypothesis. Zeroing
+the Madgwick orientation's influence on `mapOptmization`'s pose graph cut ATE trans RMSE by
+>10x (349.1 m -> 29.3 m) — a real, now-isolated effect — but ATE rot RMSE barely moved
+(124.7 -> 129.1 deg). **So the RPY soft-constraint is not, by itself, the dominant cause of
+the rotation failure.** Remaining candidates, none yet isolated:
+- IMU preintegration or scan-matching producing bad rotation independent of the RPY factor —
+  raw gyro/accel (not the synthesized orientation) drive preintegration via `extrinsicRot`,
+  and that path is unaffected by `imuRPYWeight`.
+- `Horizon_SCAN: 1800`, a datasheet estimate for the PandarXT-32, not measured — could be
+  degrading feature-based rotation estimation (flagged as an unverified assumption in
+  `docs/methods.md`).
+- Something in evaluation/alignment itself — less likely, since the same evaluator handles
+  FAST-LIO2 correctly, but not ruled out.
+
+**This is exactly the failure mode phase-1 manual/hypothesis-driven investigation exists to
+catch before a sweep** — its absence here (a decision confirmed with the user this session)
+has a direct, now-visible cost, and root-causing it fully is still open.
 
 **Next action for whoever picks this up:**
-1. Root-cause the rotation failure — start by disabling the Madgwick adapter's influence
-   (e.g. temporarily zero `imuRPYWeight` or feed a fixed identity quaternion) and see if
-   rotation RMSE improves; if it does, that confirms the adapter as the cause and the real fix
-   is either a better filter (a proper EKF-based AHRS, or accepting that a lightweight
-   complementary/Madgwick filter can't handle this rig's dynamics) or reducing its influence
-   on the pose graph. If disabling it does *not* fix rotation, look elsewhere (extrinsics,
-   `Horizon_SCAN` mismatch degrading features — both flagged as unverified assumptions in
-   `docs/methods.md`).
+1. Continue root-causing the rotation failure from the candidates above — `imuRPYWeight` is
+   ruled out as the primary cause, so look at IMU preintegration/scan-matching behavior
+   directly (e.g. log `mapOptmization`'s per-scan LM convergence/fitness) and
+   `Horizon_SCAN`'s effect on feature counts next.
 2. Once fixed, this method still needs the phase-1 manual tuning it skipped, then a proper
    phase-2 sweep bounded by that, before its results can be trusted for cross-method
    comparison — treat the current sweep/held-out results as informative about the bug, not as
