@@ -11,9 +11,15 @@
 #   raw orientation quaternion is all-zero and LIO-SAM's own imuConverter() (include/utility.h)
 #   calls ros::shutdown() on a near-zero-norm quaternion -- see docs/methods.md "LIO-SAM
 #   integration" for the filter, beta, and why this is a documented sensor-only adapter.
-# - N_SCAN: 32 (PandarXT-32 channel count). Horizon_SCAN: 1800, from the sensor's published
-#   ~0.2 deg azimuth resolution at 10 Hz (Hesai PandarXT-32 datasheet), consistent with the
-#   measured median 60948 points/scan (docs/dataset.md).
+# - N_SCAN: 32 (PandarXT-32 channel count). Horizon_SCAN: 1800, a ~0.2 deg datasheet guess and
+#   known to be wrong: the bag's measured azimuth step is 0.18 deg, i.e. a 2000-column grid,
+#   and replicating imageProjection's range-image packing over 60 scans, 1800 discards 9.7% of
+#   in-range returns into already-occupied cells vs 2.0% at 2000. Kept at 1800 anyway for now:
+#   the single run at 2000 (20260915T235638Z, docs/journal.md) scored outside the worse edge of
+#   the config's own run-to-run spread on rotation and coverage. UNSETTLED -- needs >=3 repeats
+#   per value at phase 1, and 2000 is the physically correct value if they come out level.
+#   (The earlier 1630 test measured returned points per ring, not the azimuth grid, and dropped
+#   ~18% of returns; falsified and unrelated.)
 # - lidarMinRange: 0.1m, below the measured p01 range (0.17-0.20m across exp14/16/18), same
 #   reasoning as FAST-LIO2's `blind` -- upstream's 1.0m default would discard real short-range
 #   returns from this handheld rig.
@@ -79,8 +85,24 @@ lio_sam:
   imuGyrNoise: 1.5636343949698187e-03
   imuAccBiasN: 6.4356659353532566e-05
   imuGyrBiasN: 3.5640318696367613e-05
-  imuGravity: 9.80511
-  imuRPYWeight: 0.01
+  # Measured at-rest specific-force norm (docs/dataset.md: 9.660-9.668 m/s^2 across
+  # exp14/16/18), not upstream's 9.80511. LIO-SAM fixes gravity magnitude inside GTSAM's
+  # preintegration and its accel-bias random walk (imuAccBiasN) cannot absorb a 0.14 m/s^2
+  # mismatch; at 9.80511 the preintegration guess sank at ~0.125 m/s^2 on a provably static rig
+  # (run 20260915T230256Z), at 9.663 its static-phase z step is ~0 (run 20260915T231502Z,
+  # docs/journal.md). A measured sensor constant, not tuning.
+  imuGravity: 9.663
+  # 0.0, not upstream's 0.01: run 20260915T222509Z_lio_sam_exp14 (docs/journal.md) measured
+  # the Madgwick roll/pitch slerp in mapOptmization::transformUpdate() at 0.01 costing >10x
+  # in ATE trans (349.1 -> 29.3 m) and all 36 "Large velocity" preintegration resets, with
+  # rotation unchanged. The synthesized orientation still seeds the first pose and the
+  # IMU-only fallback initial guess; only the per-scan soft constraint is off.
+  # REVISIT at phase 1: that diagnostic predates the degeneracy fix and its damage was
+  # entangled with the real bug. Post-fix, 0.01 with our own orientation is neutral, and with
+  # a perfect (GT-fed, non-reportable) orientation it is worth ~0.19 m ATE trans and ~3.8 deg
+  # ATE rot -- see the 9-axis experiment in docs/journal.md. Kept at 0.0 only because 0.01 is
+  # not yet *shown* better against this config's wide run-to-run spread.
+  imuRPYWeight: 0.0
 
   # Extrinsics: T_L_I (IMU -> LiDAR), derived from configs/dataset/hilti22.yaml's T_I_L
   # inverted -- see header comment.
@@ -91,6 +113,18 @@ lio_sam:
   extrinsicRPY: [0.0, -1.0, 0.0,
                  -1.0, 0.0, 0.0,
                  0.0, 0.0, -1.0]
+
+  # Scan-to-map degeneracy projection OFF (this image's docker/lio_sam/degeneracy_threshold.patch
+  # exposes mapOptmization::LMOptimization()'s hardcoded J^T J eigenvalue cutoff of 100 as a
+  # param; 0 disables it). 100 is an outdoor-Velodyne scale: on this ~1 m-median-range scene it
+  # flagged 91% of scans as degenerate, zeroed the tilt/z updates and let the pose ride the
+  # IMU guess -- the root cause of every earlier run's 100+ deg rotation error (runs
+  # 20260915T230256Z / 230642Z, docs/journal.md). Measured with the cutoff off: smallest
+  # eigenvalue 30-48 while the rig is provably static and LM holds the pose exactly, median 42,
+  # p10 12.6. A measured 10 (run 20260915T231202Z) was not better (RPE 10 s worse) and every
+  # time the projection fires here it has only been seen to harm, so it stays off; 0 vs 10 is
+  # a phase-1 tuning item to settle with repeats. Dataset adaptation, not tuning.
+  degeneracyThreshold: 0.0
 
   # LOAM feature threshold -- upstream defaults, deferred to sweep
   edgeThreshold: 1.0

@@ -13,6 +13,15 @@
 #      with OpenCV's `USE_UNORDERED_MAP` macro leaking from an earlier include (issue #206,
 #      confirmed independently by two reporters; see flann-lib/flann#214).
 #   3. CMakeLists.txt: `-std=c++11` -> `-std=c++14`.
+#
+# One further, dataset-motivated source patch (degeneracy_threshold.patch, applied with
+# `git apply`): mapOptmization::LMOptimization() zeroes out any scan-to-map update direction
+# whose J^T J eigenvalue is below a hardcoded 100, a scale tuned for outdoor Velodyne ranges.
+# The patch exposes that number as the ROS param `lio_sam/degeneracyThreshold` (default 100,
+# so upstream behaviour is unchanged unless a config sets it) and logs the six eigenvalues once
+# per scan so the threshold can be chosen from measured values. Why: on Hilti's close-range
+# basement (median range ~1 m) the flag fired on 91% of scans from the first, static, scan
+# onward and LM stopped correcting tilt/z (docs/journal.md, run 20260915T230256Z).
 # No GPU/CUDA dependency (package.xml only lists roscpp/rospy/tf/cv_bridge/pcl_conversions/
 # message_generation/GTSAM/OpenMP/PCL/OpenCV/Boost -- verified, not assumed).
 #
@@ -36,8 +45,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /catkin_ws/src
 WORKDIR /catkin_ws/src
 
+COPY docker/lio_sam/degeneracy_threshold.patch /tmp/degeneracy_threshold.patch
 RUN git clone https://github.com/TixiaoShan/LIO-SAM.git lio_sam && \
     cd lio_sam && git checkout ${LIO_SAM_REF} && \
+    git apply /tmp/degeneracy_threshold.patch && \
     sed -i 's/#include <opencv\/cv.h>//' include/utility.h && \
     sed -i '/#include <pcl_conversions\/pcl_conversions.h>/a #include <opencv2\/opencv.hpp>' include/utility.h && \
     sed -i 's/set(CMAKE_CXX_FLAGS "-std=c++11")/set(CMAKE_CXX_FLAGS "-std=c++14")/' CMakeLists.txt

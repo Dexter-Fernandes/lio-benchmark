@@ -1,0 +1,33 @@
+--- a/include/utility.h
++++ b/include/utility.h
+@@ -106,6 +106,7 @@
+     float imuGyrBiasN;
+     float imuGravity;
+     float imuRPYWeight;
++    float degeneracyThreshold;
+     vector<double> extRotV;
+     vector<double> extRPYV;
+     vector<double> extTransV;
+@@ -207,6 +208,7 @@
+         nh.param<float>("lio_sam/imuGyrBiasN", imuGyrBiasN, 0.00003);
+         nh.param<float>("lio_sam/imuGravity", imuGravity, 9.80511);
+         nh.param<float>("lio_sam/imuRPYWeight", imuRPYWeight, 0.01);
++        nh.param<float>("lio_sam/degeneracyThreshold", degeneracyThreshold, 100);
+         nh.param<vector<double>>("lio_sam/extrinsicRot", extRotV, vector<double>());
+         nh.param<vector<double>>("lio_sam/extrinsicRPY", extRPYV, vector<double>());
+         nh.param<vector<double>>("lio_sam/extrinsicTrans", extTransV, vector<double>());
+--- a/src/mapOptmization.cpp
++++ b/src/mapOptmization.cpp
+@@ -1233,10 +1233,11 @@
+             cv::Mat matV2(6, 6, CV_32F, cv::Scalar::all(0));
+ 
+             cv::eigen(matAtA, matE, matV);
++            ROS_INFO("LM eigenvalues %.1f %.1f %.1f %.1f %.1f %.1f (threshold %.1f)", matE.at<float>(0, 0), matE.at<float>(0, 1), matE.at<float>(0, 2), matE.at<float>(0, 3), matE.at<float>(0, 4), matE.at<float>(0, 5), degeneracyThreshold);
+             matV.copyTo(matV2);
+ 
+             isDegenerate = false;
+-            float eignThre[6] = {100, 100, 100, 100, 100, 100};
++            float eignThre[6] = {degeneracyThreshold, degeneracyThreshold, degeneracyThreshold, degeneracyThreshold, degeneracyThreshold, degeneracyThreshold};
+             for (int i = 5; i >= 0; i--) {
+                 if (matE.at<float>(0, i) < eignThre[i]) {
+                     for (int j = 0; j < 6; j++) {
