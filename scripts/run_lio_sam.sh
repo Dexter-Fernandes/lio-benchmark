@@ -24,7 +24,7 @@ rm -rf "$PCD_SAVE_DIR"
 
 roscore &
 ROSCORE_PID=$!
-trap 'kill $ROSCORE_PID ${ORIENT_PID:-} ${ADAPTER_PID:-} ${EXPORT_PID:-} ${IMG_PID:-} ${FEAT_PID:-} ${IMU_PID:-} ${MAP_PID:-} 2>/dev/null || true' EXIT
+trap 'kill $ROSCORE_PID ${ORIENT_PID:-} ${ADAPTER_PID:-} ${EXPORT_PID:-} ${IMG_PID:-} ${FEAT_PID:-} ${IMU_PID:-} ${MAP_PID:-} ${REC_PID:-} 2>/dev/null || true' EXIT
 
 for _ in $(seq 1 30); do rostopic list >/dev/null 2>&1 && break; sleep 1; done
 rostopic list >/dev/null 2>&1 || { echo "roscore did not come up" >&2; exit 1; }
@@ -65,6 +65,15 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
+# Diagnostic recording (scripts/lio_sam_diag.py reads it): the per-scan degeneracy flag
+# (odometry_incremental covariance[0]), feature clouds (counts), the preintegration guess and
+# the IMU stream LIO-SAM actually received. Off unless LIO_SAM_RECORD names an output bag.
+if [ -n "${LIO_SAM_RECORD:-}" ]; then
+  rosbag record -O "$LIO_SAM_RECORD" /lio_sam/mapping/odometry_incremental /odometry/imu_incremental \
+    /lio_sam/feature/cloud_corner /lio_sam/feature/cloud_surface /alphasense/imu/oriented &
+  REC_PID=$!
+fi
+
 echo "playing $BAG at rate $RATE (timeout ${TIMEOUT_S}s)"
 set +e
 timeout "$TIMEOUT_S" rosbag play -r "$RATE" "$BAG"
@@ -87,6 +96,10 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 
+if [ -n "${REC_PID:-}" ]; then
+  kill -INT "$REC_PID" 2>/dev/null || true   # SIGINT lets rosbag record close the bag cleanly
+  wait "$REC_PID" 2>/dev/null || true
+fi
 kill "$ORIENT_PID" "$ADAPTER_PID" "$EXPORT_PID" "$IMG_PID" "$FEAT_PID" "$IMU_PID" "$MAP_PID" 2>/dev/null || true
 wait "$EXPORT_PID" 2>/dev/null || true
 
