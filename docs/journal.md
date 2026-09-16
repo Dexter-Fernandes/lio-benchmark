@@ -705,3 +705,121 @@ results describe the bug and must not be used for comparison. Tooling added:
   decision. Useful side effect: independently confirms run-to-run determinism for this method
   on this hardware (protocol §6.1 calls for checking this).
 - **Decision:** keep (exp14 x2, exp18); investigate (exp16, matching its parent)
+
+### GLIM integration and phase-1 tuning summary (`feat/glim-integration`, 20260916T054012Z-20260916T055853Z)
+
+First GLIM integration and phase-1 manual tuning on exp14, following
+`docs/protocol.md` §6.1. Full method write-up: `docs/methods.md` "GLIM integration". Image:
+`docker/glim/Dockerfile`, `ros-humble-glim-ros` 1.2.2-0jammy from koide3's own binary PPA
+(no CUDA), not built from source (the `ppa:borglab/gtsam-release-4.0` package LIO-SAM uses
+does not actually publish `jammy`, discovered by trying the from-source build first and
+hitting a 404). Config: `configs/glim/hilti22.yaml`, materialized to GLIM's native
+`config/*.json` at launch (`scripts/glim_materialize_config.py`) against the config actually
+installed by the pinned package, not GitHub's `master` branch (which disagreed on real field
+names and enum values for this stable release -- see the config file's header comment).
+Also fixed on the way: exp14's rosbag2/MCAP conversion needed regenerating at metadata
+version 5 (`lio-bench data convert exp14 --dst-version 5`) -- ROS 2 Humble's `rosbag2_storage`
+can't parse the original version-9 metadata's `type_description_hash` field
+(`docs/dataset.md` "Derived data").
+
+### 20260916T054012Z_glim_exp14_glim_baseline
+- **Method / sequence / split:** glim / exp14 / tune
+- **Parent:** none (baseline)
+- **Hypothesis:** Adapted baseline: dataset-adaptation values only (extrinsics, field names,
+  blind zone, absolute per-point time); `odometry_cpu`/`sub_mapping_cpu`/`global_mapping_cpu`
+  left at upstream CPU defaults.
+- **Change:** first run of this method; no parent.
+- **Config hash:** `7a41023f7932298e...`
+- **Result:** status ok, coverage 95.5% (658/689). ATE trans RMSE 1.688 m, median 1.432 m,
+  p95 2.930 m; ATE rot RMSE 36.56 deg. RPE 1s trans RMSE 0.388 m / rot 8.70 deg; RPE 10s trans
+  RMSE 1.738 m / rot 35.82 deg.
+- **Interpretation:** Worse than FAST-LIO2 (0.04 m / 0.8 deg) and post-fix LIO-SAM
+  (0.65-1.07 m / 19-22 deg), consistent with upstream-default `odometry_cpu.ivox_resolution`
+  (1.0 m) being an outdoor scale for this near-range scene (median range 0.8-1.1 m, measured
+  point spacing 0.36-3.4 cm) -- the same finding FAST-LIO2's `filter_size_surf`/
+  `filter_size_map` tuning made. Establishes the phase-1 starting point.
+- **Decision:** investigate
+
+### 20260916T054346Z_glim_exp14_glim_baseline_repeat1 / 20260916T054514Z_glim_exp14_glim_baseline_repeat2
+- **Method / sequence / split:** glim / exp14 / tune
+- **Parent:** `20260916T054012Z_glim_exp14_glim_baseline`
+- **Hypothesis:** Repeat the adapted baseline (identical config) twice to measure run-to-run
+  variance before drawing any phase-1 conclusions.
+- **Change:** none -- identical config to the baseline.
+- **Config hash:** `7a41023f7932298e...` (same as baseline)
+- **Result:** repeat1: ATE trans RMSE 1.196 m, rot RMSE 25.50 deg (RPE 10s trans 1.389 m /
+  rot 22.56 deg). repeat2: ATE trans RMSE 0.507 m, rot RMSE 16.70 deg (RPE 10s trans 0.547 m /
+  rot 15.25 deg).
+- **Interpretation:** Three identical-config runs land at ATE trans 0.51/1.20/1.69 m and rot
+  16.7/25.5/36.6 deg -- large run-to-run spread, comparable in magnitude to what any single
+  phase-1 candidate is likely to produce. Confirms the same lesson LIO-SAM's tuning drew: no
+  phase-1 keep/revert call is meaningful without repeats.
+- **Decision:** investigate (both)
+
+### 20260916T054701Z_glim_exp14_glim_ivox0.2_r1 / _r2 / _r3
+- **Method / sequence / split:** glim / exp14 / tune
+- **Parent:** `20260916T054012Z_glim_exp14_glim_baseline`
+- **Hypothesis:** `odometry_cpu.ivox_resolution` 1.0 -> 0.2 m: the default GICP+iVox
+  resolution is an outdoor scale; direct analogue of FAST-LIO2's
+  `filter_size_surf`/`filter_size_map` 0.5 -> 0.2 m finding (same measured point spacing, same
+  short-range scene).
+- **Change:** `odometry_cpu.ivox_resolution`: 1.0 -> 0.2 (`ivox_min_dist` unchanged at 0.1).
+- **Config hash:** `3a1ec92d43c066ab...`
+- **Result:** r1: ATE trans 0.106 m / rot 2.24 deg. r2: ATE trans 0.094 m / rot 1.79 deg. r3:
+  ATE trans 0.088 m / rot 1.42 deg. (RPE 10s trans 0.13-0.16 m / rot 0.50-0.98 deg, all three.)
+- **Interpretation:** Dramatic, reproducible improvement -- all three repeats (0.088-0.106 m /
+  1.4-2.2 deg) sit far below the baseline's own three-repeat spread (0.51-1.69 m / 16.7-36.6
+  deg) and are competitive with FAST-LIO2 (0.04 m / 0.8 deg). Strongest phase-1 result of this
+  pass.
+- **Decision:** keep (all three) -- baked into `configs/glim/hilti22.yaml` as the new default.
+
+### 20260916T055133Z_glim_exp14_glim_ivox0.1_r1 / _r2
+- **Method / sequence / split:** glim / exp14 / tune
+- **Parent:** `20260916T054701Z_glim_exp14_glim_ivox0.2_r1` (the kept 0.2 m config)
+- **Hypothesis:** Sibling test of the kept change: does finer (0.1 m) improve further, or is
+  0.2 m a measured sweet spot (mirrors FAST-LIO2's 0.1 m sibling, which was strictly worse and
+  reverted)?
+- **Change:** `odometry_cpu.ivox_resolution`: 0.2 -> 0.1.
+- **Config hash:** `8161aa7e2732a4ad...`
+- **Result:** r1: ATE trans 0.115 m / rot 2.03 deg. r2: ATE trans 0.117 m / rot 2.28 deg.
+- **Interpretation:** Both repeats (0.115-0.117 m / 2.0-2.3 deg) sit at or slightly above the
+  0.2 m repeats' range (0.088-0.106 m / 1.4-2.2 deg) -- not clearly better, though not as
+  cleanly "strictly worse" as FAST-LIO2's 0.1 m sibling was; more repeats would be needed to
+  say more. Reverting to keep the already-3-repeat-confirmed 0.2 m value.
+- **Decision:** revert (both)
+
+### 20260916T055435Z_glim_exp14_glim_vgicp0.2_r1 / _r2
+- **Method / sequence / split:** glim / exp14 / tune
+- **Parent:** `20260916T054701Z_glim_exp14_glim_ivox0.2_r1`
+- **Hypothesis:** `odometry_cpu.registration_type` GICP -> VGICP, GLIM's other CPU
+  registration backend, untried -- `vgicp_resolution` scaled to 0.2 m (from upstream's 0.5 m
+  default) to match the kept GICP tuning for a fair comparison.
+- **Change:** `registration_type`: GICP -> VGICP; `vgicp_resolution`: 0.5 -> 0.2.
+- **Config hash:** `e2489362489ca8f8...`
+- **Result:** r1: ATE trans 0.179 m / rot 3.78 deg. r2: ATE trans 0.181 m / rot 3.87 deg.
+- **Interpretation:** Consistently worse than GICP+iVox at matched resolution
+  (0.179-0.181 m / 3.8-3.9 deg vs 0.088-0.106 m / 1.4-2.2 deg) -- a clean negative result on
+  this scene.
+- **Decision:** revert (both) -- GICP stays the registration type.
+
+### 20260916T055733Z_glim_exp14_glim_threads4_r1 / _r2
+- **Method / sequence / split:** glim / exp14 / tune
+- **Parent:** `20260916T054701Z_glim_exp14_glim_ivox0.2_r1`
+- **Hypothesis:** `odometry_cpu.num_threads` 2 -> 4, matching this machine's thread count
+  (i7-7500U, 2c/4t), same reasoning as LIO-SAM's `numberOfCores`/GLIM's own
+  `preprocess.num_threads` already set to 4.
+- **Change:** `odometry_cpu.num_threads`: 2 -> 4.
+- **Config hash:** `489eb5a22a389f96...`
+- **Result:** r1: ATE trans 0.099 m / rot 1.72 deg. r2: ATE trans 0.128 m / rot 2.72 deg.
+- **Interpretation:** No clear, consistent improvement -- both results sit at or near the
+  num_threads=2 spread (0.088-0.106 m / 1.4-2.2 deg). May still be worth revisiting for a
+  compute/speed report later, but that is a different axis than accuracy tuning.
+- **Decision:** revert (both) -- `num_threads` stays at 2.
+
+**Status after this pass:** ATE trans RMSE ~0.09-0.11 m, rot RMSE ~1.4-2.2 deg on exp14,
+competitive with FAST-LIO2. One phase-1 change kept (`ivox_resolution` 0.2 m); three tried and
+reverted (`ivox_resolution` 0.1 m, VGICP, `num_threads` 4). Still open: IMU noise covariance
+(needs GLIM's preintegration noise-unit convention verified against source before reusing
+FAST-LIO2's measured std values -- not yet done), `smoother_lag`/`max_iterations`, a proper
+phase-2 sweep, and held-out evaluation on exp16/exp18 (their rosbag2 conversions still need
+the same `--dst-version 5` regeneration exp14 got). Not yet a frozen, comparable baseline.

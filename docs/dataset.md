@@ -133,14 +133,20 @@ covariances, or PointCloud2 layout plus point bytes. Records are kept in
 
 | Sequence | Topic | ROS 1 msgs | MCAP msgs | Content SHA-256 match | Produced by |
 |---|---|---|---|---|---|
-| exp14 | `/alphasense/imu` | 29539 | 29539 | yes | pre-existing (ranger-lio `convert_bag.sh`), checked |
-| exp14 | `/hesai/pandar` | 740 | 740 | yes | pre-existing (ranger-lio `convert_bag.sh`), checked |
+| exp14 | `/alphasense/imu` | 29539 | 29539 | yes | `lio-bench data convert --dst-version 5` |
+| exp14 | `/hesai/pandar` | 740 | 740 | yes | `lio-bench data convert --dst-version 5` |
 | exp16 | `/alphasense/imu` | 79958 | 79958 | yes | `lio-bench data convert` |
 | exp16 | `/hesai/pandar` | 2003 | 2003 | yes | `lio-bench data convert` |
 | exp18 | `/alphasense/imu` | 43656 | 43656 | yes | `lio-bench data convert` |
 | exp18 | `/hesai/pandar` | 1094 | 1094 | yes | `lio-bench data convert` |
 
-All three use rosbag2 metadata version 9 (`rosbags` 0.11.5, MCAP storage).
+exp16/exp18 use rosbag2 metadata version 9 (`rosbags` 0.11.5, MCAP storage) -- the original
+pre-existing exp14 conversion (ranger-lio `convert_bag.sh`) also used version 9 but was
+re-generated at version 5 for GLIM: ROS 2 Humble's `rosbag2_storage` fails to parse version 9's
+`type_description_hash` field (`yaml-cpp: bad conversion`, checked directly against the built
+image), while Humble's own `ros2 bag record` writes version 5 natively. exp16/exp18 need the
+same re-conversion before use with GLIM (not done yet -- their held-out evaluation is a later
+phase, `docs/methods.md` "GLIM integration").
 
 ## Local layout
 

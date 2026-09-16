@@ -92,6 +92,19 @@ def test_lio_sam_extrinsic_is_T_L_I_not_T_I_L(T_I_L):
     assert not np.allclose(T_L_I.t, T_I_L.t)
 
 
+def test_glim_extrinsic_is_T_L_I_not_T_I_L(T_I_L):
+    """GLIM's config_sensors.json `T_lidar_imu` is consumed in cloud_preprocessor.cpp as
+    `T_imu_lidar = T_lidar_imu.inverse()`, then `p_imu = T_imu_lidar * p_lidar` -- so the
+    config value itself is T_L_I (T_I_L inverted), the same convention LIO-SAM's
+    extrinsicRot/extrinsicTrans need (test_lio_sam_extrinsic_is_T_L_I_not_T_I_L above).
+    configs/glim/hilti22.yaml's `sensors.T_lidar_imu` translation must therefore match
+    LIO-SAM's extrinsicTrans, not the raw calibration translation.
+    """
+    T_L_I = T_I_L.inverse()
+    np.testing.assert_allclose(T_L_I.R @ [0, 0, 1.0], [0, 0, -1], atol=1e-6)
+    np.testing.assert_allclose(T_L_I.t, [-0.00855, -0.001, 0.055], atol=1e-6)
+
+
 def test_lio_sam_extrinsic_puts_gravity_up_per_rep105(T_I_L):
     """LIO-SAM's README requires IMU data to land in the lidar frame under ROS REP-105
     (x forward, y left, z up), i.e. a level, stationary sensor reads ~+9.8 on z after

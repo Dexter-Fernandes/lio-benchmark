@@ -2,15 +2,18 @@
 
 Prepared: 14 September 2026. Updated: 16 September 2026. Status: foundation done, **FAST-LIO2
 fully integrated, tuned and evaluated held-out**, merged to `main`. **LIO-SAM runs end-to-end,
-its rotation failure is root-caused and fixed, and `feat/lio-sam-integration` is
-merge-ready (clean fast-forward, pushed, 71 tests green) — awaiting the user's go-ahead per
-this repo's convention.** Merging is now a separate question from comparability: the code is
-correct, but the method still owes the phase-1 tuning it skipped, a re-run sweep and a fresh
-held-out evaluation before its numbers mean anything. See "LIO-SAM" and "Merge readiness"
-below.
+its rotation failure is root-caused and fixed, and `feat/lio-sam-integration` is merged to
+`main`** (correction: an earlier draft of this file said it was still awaiting go-ahead;
+checked directly with `git rev-parse main feat/lio-sam-integration origin/main` -- all three
+are `d9e0cc7`, so the merge already happened). Merging was a separate question from
+comparability: the code is correct, but the method still owes the phase-1 tuning it skipped, a
+re-run sweep and a fresh held-out evaluation before its numbers mean anything. See "LIO-SAM"
+below. **GLIM integration is now in progress on `feat/glim-integration`** (not yet merged) --
+see "GLIM" below.
 
-**Next session, in order:** confirm and run the fast-forward merge (§ Merge readiness), then
-phase-1 tuning led by `imuRPYWeight` 0.0 vs 0.01 (§ LIO-SAM, "Next action").
+**Next session, in order:** continue GLIM phase-1 manual tuning on exp14 (§ GLIM), then
+LIO-SAM's own still-owed phase-1 tuning led by `imuRPYWeight` 0.0 vs 0.01 (§ LIO-SAM, "Next
+action").
 
 ## Goal and confirmed decisions
 
@@ -73,7 +76,8 @@ artifacts) repeats with method-specific changes only. Summary:
 every run lands on the dashboard automatically. `scripts/wandb_setup.sh` does one-time login.
 `lio-bench report` builds/updates a saved W&B Report comparing every logged run.
 
-Not done (working): LIO-SAM (see below), GLIM, DLIO, original FAST-LIO, RTAB-Map, LOAM. No
+Not done (working): GLIM (see below, first phase-1 pass done on `feat/glim-integration`), DLIO,
+original FAST-LIO, RTAB-Map, LOAM. No
 cross-method comparison yet (only FAST-LIO2 has trustworthy results).
 
 ## Hardware and execution constraints
@@ -197,7 +201,66 @@ docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
 `lio-bench eval <seq> <tum> --frame lidar --run-dir <run>` (LIO-SAM publishes lidar-frame
 poses). Rebuilding the image after a patch change recompiles only the LIO-SAM layer.
 
-## Merge readiness (`feat/lio-sam-integration` -> `main`)
+## GLIM: integrated, first phase-1 pass done, not yet merged
+
+Branch `feat/glim-integration` (not merged -- confirm with the user before merging). Full
+detail: `docs/methods.md` "GLIM integration", `docs/journal.md` "GLIM integration and phase-1
+tuning summary".
+
+- **Image:** `docker/glim/Dockerfile` installs `ros-humble-glim-ros` 1.2.2-0jammy from
+  koide3's own official PPA (no CUDA), not built from source. Building GTSAM +
+  `gtsam_points` + `glim` + `glim_ros2` from source was tried first and abandoned: the
+  `ppa:borglab/gtsam-release-4.0` package LIO-SAM uses does not actually publish `jammy`
+  (checked directly, its Launchpad overview page is misleading) and `gtsam_points` has moved
+  to GTSAM 4.3a1 regardless. The resulting image is ~550 MB vs. the ~6 GB from-source images.
+- **No point-cloud or orientation adapter needed**, unlike FAST-LIO2/LIO-SAM -- verified
+  against GLIM's own source: it auto-detects Hilti's exact per-point time/ring/intensity
+  field names, and never reads IMU orientation. The "adapter" is config values only
+  (`configs/glim/hilti22.yaml`).
+- **Data:** exp14's rosbag2/MCAP conversion needed regenerating at metadata version 5
+  (`lio-bench data convert exp14 --dst-version 5`) -- ROS 2 Humble can't parse the original
+  version-9 metadata. exp16/exp18 still need the same treatment before GLIM can use them
+  (not done; their held-out evaluation is a later phase).
+- **Two real runtime bugs**, found only by running it: an empty `ros.image_topic` crashes the
+  node outright (`rclcpp::exceptions::InvalidTopicNameError`); the config was first written
+  against GLIM's GitHub `master` branch, which disagrees with the pinned stable package on
+  real field names/enum values (`sensors.imu_bias_noise` split differently,
+  `initialization_mode: "ROBUST"` doesn't exist on 1.2.2) -- fixed by dumping the actually
+  installed `config/*.json` from inside the built image and reconciling against that.
+- **Phase-1 tuning on exp14 (`docs/protocol.md` #6.1):** adapted baseline established (3
+  repeats: ATE trans RMSE 0.51-1.69 m, rot RMSE 16.7-36.6 deg -- large run-to-run spread, same
+  lesson as LIO-SAM). `odometry_cpu.ivox_resolution` 1.0 -> 0.2 m **kept** (3 repeats:
+  0.088-0.106 m / 1.4-2.2 deg, competitive with FAST-LIO2's 0.04 m / 0.8 deg -- direct
+  analogue of FAST-LIO2's `filter_size_surf`/`filter_size_map` finding). `ivox_resolution`
+  0.1 m, `registration_type` VGICP (matched resolution), and `num_threads` 4 all tried and
+  **reverted** (not shown better; VGICP clearly worse). All 12 runs logged to W&B.
+
+Launch pattern (rebuild the image after any config/script change -- unlike FAST-LIO2/LIO-SAM,
+this image has no compiled layer to keep, just a fast apt install, so a full rebuild is cheap;
+`GLIM_CONFIG` still overrides the baked-in config for candidates without rebuilding):
+```
+docker build -f docker/glim/Dockerfile -t lio-benchmark/glim:dev .
+docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
+  [-e GLIM_CONFIG=/runs/_candidates/<x>.yaml] \
+  lio-benchmark/glim:dev /run_glim.sh /data/hilti22/rosbag2/<seq> \
+  /runs/<id>/raw_glim.tum 300 1.0
+```
+`lio-bench eval <seq> <tum> --frame imu --run-dir <run>` (GLIM publishes IMU-frame poses on
+`/glim_ros/odom`). exp14's bag is short (~75s), so a full run plus eval takes well under two
+minutes -- repeats are cheap here, unlike FAST-LIO2/LIO-SAM.
+
+**Next action for whoever picks this up:** IMU noise covariance is the next phase-1 candidate
+-- GLIM's preintegration noise-unit convention (`sensors.imu_acc_noise`/`imu_gyro_noise`)
+needs verifying against source before reusing FAST-LIO2's measured std values, unlike
+FAST-LIO2/LIO-SAM where this is already done. Then `smoother_lag`/`max_iterations`, a properly
+bounded phase-2 sweep, and (after regenerating exp16/exp18's rosbag2 conversions) a held-out
+evaluation. Not yet a frozen, comparable baseline.
+
+## Merge readiness (`feat/lio-sam-integration` -> `main`) -- already done, kept for the record
+
+**This merge already happened** (see the correction at the top of this file) -- the section
+below is kept as the historical record of what was verified before merging, not a pending
+action. Don't re-run it.
 
 Verified on 16 September 2026, immediately after the last push:
 

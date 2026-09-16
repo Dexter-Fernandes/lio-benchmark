@@ -1,0 +1,171 @@
+# GLIM baseline config for Hilti-Oxford 2022 (exp14/exp16/exp18), adapted from the config/*.json
+# actually installed by the pinned package (docker/glim/Dockerfile's ros-humble-glim-ros
+# 1.2.2-0jammy) -- not GitHub's `master` branch, which is ahead of this stable release and
+# disagrees on real fields (`sensors.imu_bias_noise` is one field here, split into
+# imu_bias_noise_acc/imu_bias_noise_gyro on master; `odometry_estimation.initialization_mode`
+# only recognizes "LOOSE" here, "ROBUST" doesn't exist in this build). Confirmed by dumping
+# `$(ros2 pkg prefix glim)/share/glim/config/*.json` inside the built image and diffing against
+# what was actually assumed, not by reading source on GitHub alone. Sectioned to
+# mirror GLIM's own config files one-to-one (sensors/preprocess/odometry_cpu/sub_mapping_cpu/
+# global_mapping_cpu/ros); scripts/run_glim.sh materializes each section back out to its
+# GLIM-native config_<section>.json before launch, so fast_lio2_candidate.py's
+# apply_overrides (dotted section.field=value) works unchanged -- see scripts/glim_candidate.py.
+#
+# Unlike FAST-LIO2/LIO-SAM, GLIM needs no Python point-cloud or orientation adapter. Verified
+# against the pinned source, not assumed (docs/methods.md "GLIM integration"):
+# - include/glim/util/ros_cloud_converter.hpp's extract_raw_points auto-detects the per-point
+#   time field by trying "t"/"time"/"time_stamp"/"timestamp" -- Hilti's field is literally
+#   named `timestamp` (docs/dataset.md), an exact match.
+# - glim_ros2's glim_ros.cpp imu_callback reads only linear_acceleration/angular_velocity,
+#   never msg->orientation -- the all-zero orientation quaternion (dataset question 1) is a
+#   non-issue here, same conclusion as FAST-LIO2.
+#
+# Dataset-specific adaptations from docs/dataset.md and configs/dataset/hilti22.yaml, not
+# tuning:
+# - sensors.ring_field/intensity_field: Hilti's actual PointCloud2 field names.
+# - sensors.T_lidar_imu: cloud_preprocessor.cpp computes `T_imu_lidar =
+#   T_lidar_imu.inverse()`, then `p_imu = T_imu_lidar * p_lidar` -- so this config value is
+#   T_L_I (T_I_L inverted), the same convention LIO-SAM's extrinsicRot/extrinsicTrans need
+#   (docs/methods.md point 5). Numerically identical to configs/lio_sam/hilti22.yaml's
+#   extrinsicRot/extrinsicTrans (T_I_L's rotation is self-inverse; translation is not), as a
+#   translation + xyzw quaternion. See tests/test_frames.py::test_glim_extrinsic_is_T_L_I_not_T_I_L.
+# - sensors.autoconf_perpoint_times/perpoint_relative_time: false, pinned rather than
+#   auto-detected, because Hilti's `timestamp` field is absolute epoch seconds, not relative
+#   (docs/dataset.md point 2) -- same reasoning as FAST-LIO2's timestamp_unit: 0.
+# - preprocess.distance_near_thresh: 0.1, below the measured p01 range (0.17-0.20m across
+#   exp14/16/18), same reasoning as FAST-LIO2's blind/LIO-SAM's lidarMinRange. Upstream's
+#   default (0.5) would drop real short-range returns from the handheld rig.
+# - ros.imu_topic/points_topic: the raw Hilti topics directly -- no adapter node needed.
+# - ros.extension_modules: only librviz_viewer.so (a headless ROS-topic publisher, not a GUI --
+#   confirmed from glim_ros2/src/glim_ros/rviz_viewer.cpp, needs only rclcpp/tf2/nav_msgs) so
+#   odometry is actually published; libstandard_viewer.so dropped (Iridescence/OpenGL GUI,
+#   unneeded and possibly display-dependent, same reasoning as the GLFW/Wayland viewer note in
+#   HANDOFF.md).
+#
+# Tuned on exp14 (docs/journal.md, kept):
+# - 20260916T054701Z (3 repeats): odometry_cpu.ivox_resolution 1.0 -> 0.2m, the GICP+iVox
+#   analogue of FAST-LIO2's filter_size_surf/filter_size_map finding (same measured point
+#   spacing, 0.36-3.4cm, same short-range scene). Baseline's own 3-repeat spread was ATE trans
+#   0.51-1.69m / rot 16.7-36.6deg; all three 0.2m repeats landed at 0.088-0.106m / 1.4-2.2deg,
+#   competitive with FAST-LIO2 (0.04m/0.8deg) and far tighter than the baseline's own spread.
+#
+# Still open (phase-1 candidates per docs/protocol.md #6.1, in priority order): finer
+# ivox_resolution (e.g. 0.1m, to check for a FAST-LIO2-style sibling-worse floor before
+# settling on 0.2m), registration_type GICP vs VGICP, num_threads. sub_mapping_cpu/
+# global_mapping_cpu are secondary-comparison-only (docs/protocol.md #1, GLIM's global
+# mapping) and untouched here.
+
+sensors:
+    imu_acc_noise: 0.05
+    imu_gyro_noise: 0.02
+    imu_int_noise: 0.001
+    imu_bias_noise: 1.0e-5
+    global_shutter_lidar: false
+    T_lidar_imu: [-0.00855, -0.001, 0.055, 0.7071068, -0.7071068, 0.0, 0.0]
+    intensity_field: "intensity"
+    ring_field: "ring"
+    autoconf_perpoint_times: false
+    autoconf_prefer_frame_time: false
+    perpoint_relative_time: false
+    perpoint_time_scale: 1.0
+
+preprocess:
+    distance_near_thresh: 0.1
+    distance_far_thresh: 100.0
+    use_random_grid_downsampling: true
+    downsample_resolution: 1.0
+    random_downsample_target: 10000
+    random_downsample_rate: 0.1
+    enable_outlier_removal: false
+    outlier_removal_k: 10
+    outlier_std_mul_factor: 1.0
+    enable_cropbox_filter: false
+    crop_bbox_frame: "lidar"
+    crop_bbox_min: [-1.0, -1.0, -1.0]
+    crop_bbox_max: [1.0, 1.0, 1.0]
+    k_correspondences: 10
+    num_threads: 4   # matches this machine's thread count (i7-7500U, 2c/4t), like LIO-SAM's numberOfCores
+
+odometry_cpu:
+    so_name: "libodometry_estimation_cpu.so"
+    initialization_mode: "LOOSE"   # upstream default; "ROBUST" isn't a mode this package version recognizes
+    initialization_window_size: 3.0
+    init_pose_damping_scale: 1.0e+10
+    smoother_lag: 5.0
+    use_isam2_dogleg: false
+    isam2_relinearize_skip: 1
+    isam2_relinearize_thresh: 0.1
+    fix_imu_bias: false
+    compute_covs: false
+    registration_type: "GICP"
+    max_iterations: 8
+    lru_thresh: 100
+    target_downsampling_rate: 0.1
+    ivox_resolution: 0.2   # tuned 20260916T054701Z, kept (see file header)
+    ivox_min_dist: 0.1
+    vgicp_resolution: 0.5
+    vgicp_voxelmap_levels: 1
+    vgicp_voxelmap_scaling_factor: 2.0
+    validate_imu: true
+    save_imu_rate_trajectory: true
+    num_threads: 2
+
+sub_mapping_cpu:
+    so_name: "libsub_mapping.so"
+    enable_imu: true
+    enable_optimization: false
+    max_num_keyframes: 15
+    keyframe_update_strategy: "OVERLAP"
+    keyframe_update_min_points: 500
+    keyframe_update_interval_rot: 3.14
+    keyframe_update_interval_trans: 1.0
+    max_keyframe_overlap: 0.6
+    create_between_factors: false
+    between_registration_type: "GICP"
+    registration_error_factor_type: "VGICP"
+    keyframe_randomsampling_rate: 1.0
+    keyframe_voxel_resolution: 0.25
+    keyframe_voxelmap_levels: 2
+    keyframe_voxelmap_scaling_factor: 2.0
+    submap_downsample_resolution: 0.3
+    submap_voxel_resolution: 0.5
+
+global_mapping_cpu:
+    so_name: "libglobal_mapping.so"
+    enable_imu: true
+    enable_optimization: true
+    init_pose_damping_scale: 1.0e+10
+    create_between_factors: true
+    between_registration_type: "GICP"
+    registration_error_factor_type: "VGICP"
+    randomsampling_rate: 0.2
+    submap_voxel_resolution: 0.5
+    submap_voxelmap_levels: 1
+    submap_voxelmap_scaling_factor: 2.0
+    max_implicit_loop_distance: 100.0
+    min_implicit_loop_overlap: 0.2
+    use_isam2_dogleg: false
+    isam2_relinearize_skip: 1
+    isam2_relinearize_thresh: 0.1
+
+ros:
+    enable_local_mapping: true
+    enable_global_mapping: true
+    keep_raw_points: false
+    imu_time_offset: 0.0
+    points_time_offset: 0.0
+    acc_scale: 0.0   # upstream sentinel: 0 means auto-detect; Hilti's IMU isn't Livox (9.80665) or Hesai-gyro-scaled
+    ang_scale: 1.0
+    imu_frame_id: ""
+    lidar_frame_id: ""
+    base_frame_id: ""
+    odom_frame_id: "odom"
+    map_frame_id: "map"
+    publish_imu2lidar: true
+    tf_time_offset: 1.0e-6
+    extension_modules: ["libmemory_monitor.so", "librviz_viewer.so"]
+    imu_topic: "/alphasense/imu"
+    points_topic: "/hesai/pandar"
+    image_topic: "/unused/image"   # never published in this bag; empty string crashes rclcpp
+                                    # (InvalidTopicNameError) -- confirmed by hitting it directly
+    playback_speed: 1.0   # real-time; glim_rosbag's own throttle, not `ros2 bag play -r`

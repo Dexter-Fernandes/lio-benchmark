@@ -1,0 +1,16 @@
+{
+  // GLIM (Ubuntu 22.04 / ROS 2 Humble, CPU-only). Requires LIO_DATA_ROOT set in the launching shell.
+  "name": "lio-benchmark glim",
+  "build": {
+    "dockerfile": "../../docker/glim/Dockerfile",
+    "context": "../.."
+  },
+  "workspaceFolder": "/workspaces/lio-benchmark",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/lio-benchmark,type=bind",
+  "mounts": [
+    "source=${localEnv:LIO_DATA_ROOT},target=/data/hilti22,type=bind,readonly",
+    "source=${localWorkspaceFolder}/runs,target=/runs,type=bind"
+  ],
+  "initializeCommand": "mkdir -p runs",
+  "overrideCommand": true
+}
