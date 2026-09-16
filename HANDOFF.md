@@ -1,10 +1,11 @@
 # lio-benchmark — agent handoff
 
-Prepared: 14 September 2026. Updated: 15 September 2026. Status: foundation done, **FAST-LIO2
-fully integrated, tuned and evaluated held-out**, merged to `main`. **LIO-SAM integration
-scaffolding is complete and runs end-to-end (branch `feat/lio-sam-integration`, not merged),
-but has an unresolved, structural rotation failure across every run — not a working baseline
-for comparison yet.** See "LIO-SAM: status and open issue" below.
+Prepared: 14 September 2026. Updated: 16 September 2026. Status: foundation done, **FAST-LIO2
+fully integrated, tuned and evaluated held-out**, merged to `main`. **LIO-SAM runs end-to-end
+and its rotation failure is root-caused and fixed (branch `feat/lio-sam-integration`, not
+merged), but it still owes the phase-1 tuning it skipped, a re-sweep and a fresh held-out
+evaluation before it is comparable.** See "LIO-SAM: rotation failure root-caused and fixed"
+below.
 
 ## Goal and confirmed decisions
 
@@ -91,78 +92,102 @@ One headless experiment at a time; CPU-only for GLIM; one or two compile jobs. F
 fine on this hardware at 1.0x real-time playback — a reasonable default to try for LIO-SAM too,
 falling back to slower playback only if it overloads.
 
-## LIO-SAM: status and open issue
+## LIO-SAM: rotation failure root-caused and fixed; phase-1 tuning still owed
 
-Branch `feat/lio-sam-integration` (not merged — do not merge until the rotation failure below
-is fixed and results are trustworthy). Full scaffolding done and builds/runs end-to-end,
-following the FAST-LIO2 pattern (`docker/lio_sam/`, `adapters/lio_sam/`, `configs/lio_sam/`,
-`scripts/run_lio_sam.sh`), with two confirmed decisions from this session:
+Branch `feat/lio-sam-integration` (not merged -- confirm with the user before merging). Full
+scaffolding follows the FAST-LIO2 pattern (`docker/lio_sam/`, `adapters/lio_sam/`,
+`configs/lio_sam/`, `scripts/run_lio_sam.sh`); genuine upstream `TixiaoShan/LIO-SAM` plus a
+Madgwick orientation adapter (required: `imuConverter()` shuts the node down on Hilti's
+all-zero orientation quaternion). Full detail: `docs/methods.md` "LIO-SAM integration",
+`docs/journal.md` (every run, newest last, plus the "LIO-SAM integration summary").
 
-- **Orientation:** a Madgwick filter adapter (`adapters/lio_sam/orientation_filter.py`,
-  `imu_orientation_node.py`), not a named derivative — genuine upstream `TixiaoShan/LIO-SAM`
-  with a sensor-only dataset adapter. Confirmed necessary: `imuConverter()`
-  (`include/utility.h`) calls `ros::shutdown()` on a near-zero-norm quaternion, which the raw
-  all-zero orientation triggers immediately.
-- **Tuning:** phase-1 manual/hypothesis-driven tuning (`docs/protocol.md` §6.1) was
-  **explicitly skipped** for this method (confirmed decision) — went straight from baseline
-  to a wide, upstream-default-centered Bayesian sweep. **This turned out to matter**: see
-  below.
+**What was wrong.** Every early run (baseline, 8 sweep trials, both held-out, four
+diagnostics) had ATE rot RMSE 100-170 deg. Root cause: `mapOptmization::LMOptimization()`
+zeroes any scan-to-map update direction whose J^T J eigenvalue is below a hardcoded 100,
+an outdoor-Velodyne scale. On this ~1 m-range scene it flagged 91% of scans, discarded the
+tilt/z updates, and the pose rode the IMU-preintegration guess -- visible as an identical,
+deterministic tilt to -30 deg and 1.1 m sink during the 6 s the rig is provably static at
+the start of exp14. Found by comparing estimates against GT in that static window and then
+recording LIO-SAM's internals (`LIO_SAM_RECORD` in `scripts/run_lio_sam.sh`, analysed by
+`scripts/lio_sam_diag.py`: per-scan degenerate flag, feature counts, guess vs output, IMU
+delivery).
 
-**What happened, in order** (full detail in `docs/journal.md`, `docs/methods.md` "LIO-SAM
-integration"):
+**What changed (all in `configs/lio_sam/hilti22.yaml`, each justified in its comment):**
 
-1. Noetic/GTSAM build: LIO-SAM's own bundled Docker instructions target Kinetic; used the
-   upstream-maintainer-endorsed fix from `github.com/TixiaoShan/LIO-SAM/issues/206` (GTSAM
-   4.0.3 from the official PPA, two source patches for OpenCV/FLANN and C++14) — builds clean.
-2. First run attempt crashed immediately: three of LIO-SAM's four nodes hardcode
-   `ros::init(..., "lio_sam")` in source and rely on `roslaunch`'s automatic per-node name
-   remapping; plain `rosrun` calls (this project's convention, no `roslaunch`) collided and
-   evicted each other from the ROS master. Fixed with explicit `__name:=` remaps in
-   `scripts/run_lio_sam.sh` — a real bug, not a config issue.
-3. **Baseline run on exp14 diverges catastrophically**: ATE trans RMSE 349 m, rot RMSE
-   124.7 deg (run `20260915T214917Z_lio_sam_exp14`, decision `investigate`), with 36 "Large
-   velocity, reset IMU-preintegration!" warnings in the log — a real estimator failure, not a
-   normal integration gap.
-4. **8-trial Bayesian sweep** (wide ranges, phase-1 skipped, sweep `udrqijbp`) over IMU
-   noise/leaf-size/keyframe params: translation RMSE varies hugely across trials (7.9 m to
-   2877 m), but **rotation RMSE stays 100-170 degrees in every single trial** with no visible
-   trend against any swept param. No trial beats the baseline on both metrics — config stays
-   unchanged (frozen = baseline), matching FAST-LIO2's own "no trial beats baseline on both"
-   precedent, just far more extreme here.
-5. **Held-out evaluation on exp16 and exp18** (frozen config, unchanged): both also
-   catastrophically diverge (exp16: ATE trans RMSE 2297 m, rot RMSE 141.7 deg, status
-   incomplete; exp18: ATE trans RMSE 286.5 m, rot RMSE 147.2 deg, status incomplete) — the
-   same rotation-failure pattern, a third time, on different sequences.
+1. `imuRPYWeight: 0.0` (run `20260915T222509Z`): the Madgwick roll/pitch slerp cost >10x in
+   translation; rotation unchanged.
+2. `degeneracyThreshold: 0.0` via `docker/lio_sam/degeneracy_threshold.patch` (new param,
+   default 100 = upstream; also logs the six eigenvalues per scan). exp14 went from
+   29.3 m / 129 deg to 1.07 m / 18.8 deg, RPE 1 s rot 26.6 -> 4.5 deg, resets 46 -> 0
+   (runs `20260915T230256Z` diagnosis, `20260915T230642Z` fix). Measured eigenvalue floor
+   while static is ~30; a measured 10 (`20260915T231202Z`) was not better, reverted.
+3. `imuGravity: 9.663` (run `20260915T231502Z`): measured at-rest norm; the preintegration
+   guess no longer sinks on a static rig. Kept on mechanism evidence.
 
-**Diagnostic run done this session (`20260915T222509Z_lio_sam_exp14`, `imuRPYWeight:
-0.01 -> 0.0`, `docs/journal.md`):** this both confirmed and narrowed the hypothesis. Zeroing
-the Madgwick orientation's influence on `mapOptmization`'s pose graph cut ATE trans RMSE by
->10x (349.1 m -> 29.3 m) — a real, now-isolated effect — but ATE rot RMSE barely moved
-(124.7 -> 129.1 deg). **So the RPY soft-constraint is not, by itself, the dominant cause of
-the rotation failure.** Remaining candidates, none yet isolated:
-- IMU preintegration or scan-matching producing bad rotation independent of the RPY factor —
-  raw gyro/accel (not the synthesized orientation) drive preintegration via `extrinsicRot`,
-  and that path is unaffected by `imuRPYWeight`.
-- `Horizon_SCAN: 1800`, a datasheet estimate for the PandarXT-32, not measured — could be
-  degrading feature-based rotation estimation (flagged as an unverified assumption in
-  `docs/methods.md`).
-- Something in evaluation/alignment itself — less likely, since the same evaluator handles
-  FAST-LIO2 correctly, but not ruled out.
+**Upstream README data-prep requirements: verified.** Point `time` relative and in [0, 0.1] s,
+`ring` present, dense cloud, IMU at 399.2 Hz (README wants >=200), and REP-105 after
+`extrinsicRot` (measured at-rest specific force maps to z = +9.66) with gyro axes confirmed
+against GT (per-axis correlation 0.9994/0.9997/1.0000, slope ~1.00). `extrinsicRPY` matches
+the README's `q_lb` definition. Two deviations, both documented in `docs/methods.md`: the
+sensor is 6-axis, not the required 9-axis, so a Madgwick adapter substitutes (tilt error vs
+GT: 0.70 deg over the static init window, 1.60 deg mean overall); and `Horizon_SCAN` is
+knowingly 1800 rather than the measured-correct 2000, see the phase-1 note below. The README's
+manual "rotate the sensor suite and watch the printed IMU values" check is impossible on a
+recorded bag and was replaced by the GT comparisons above.
 
-**This is exactly the failure mode phase-1 manual/hypothesis-driven investigation exists to
-catch before a sweep** — its absence here (a decision confirmed with the user this session)
-has a direct, now-visible cost, and root-causing it fully is still open.
+**What the 9-axis deviation costs (measured).** Hilti's own GT orientation was fed to LIO-SAM
+as a synthetic perfect 9-axis IMU in a 2x2 against `imuRPYWeight` (runs `20260916T0006*`;
+**GT-fed, violates `docs/protocol.md` §3, never reportable** -- the node lives in a scratchpad,
+not `adapters/`, and warns on every run). At the frozen `imuRPYWeight: 0.0` the orientation
+source makes no measurable difference, so the deviation is moot as configured. With upstream's
+`0.01` restored, a perfect orientation is worth about 0.19 m ATE translation, 3.8 deg ATE
+rotation and 5.9 deg RPE 10 s rotation over our Madgwick output. The same experiment showed
+`imuRPYWeight: 0.01` is **no longer harmful** post-degeneracy-fix (it was set to 0 on a
+pre-fix diagnostic whose damage was entangled with the real bug), so **0.0 vs 0.01 is now an
+open phase-1 item, not a settled decision** -- it is the single change most likely to improve
+this method, and it is free.
 
-**Next action for whoever picks this up:**
-1. Continue root-causing the rotation failure from the candidates above — `imuRPYWeight` is
-   ruled out as the primary cause, so look at IMU preintegration/scan-matching behavior
-   directly (e.g. log `mapOptmization`'s per-scan LM convergence/fitness) and
-   `Horizon_SCAN`'s effect on feature counts next.
-2. Once fixed, this method still needs the phase-1 manual tuning it skipped, then a proper
-   phase-2 sweep bounded by that, before its results can be trusted for cross-method
-   comparison — treat the current sweep/held-out results as informative about the bug, not as
-   this method's real performance.
-3. Only then: merge to `main` (confirm with the user first, per this repo's convention).
+**Cross-checked on upstream's own data.** LIO-SAM's `walking_dataset` (VLP-16, outdoor, real
+9-axis Microstrain, upstream `params.yaml` verbatim) runs clean through this image: 3222 poses,
+zero warnings, walking-pace trajectory over 808 m. Its smallest LM eigenvalue has a median of
+564.6 against Hilti's 42.2, so upstream's hardcoded threshold of 100 trips on 2.5% of scans
+there and 73% here. The root cause is a range assumption baked into upstream, not a fault in
+this integration. Bag kept at `~/data/lio_sam_demo/walking_dataset.bag` (3.8 GB, delete if you
+want the space); it is outside the benchmark manifest and has no ground truth, so it can
+validate behaviour but never produce ATE/RPE.
+
+**Current exp14 numbers (fixed config, single runs):** ATE trans 0.65-1.07 m, ATE rot
+19-22 deg, RPE 1 s 0.16-0.19 m / 4.4-5.4 deg, RPE 10 s rot 6-27 deg. FAST-LIO2 on the same
+sequence: 0.04 m / 0.8 deg. The spread is the fixed config's own run-to-run variance
+(repeat `20260915T231728Z`), so no single-run comparison smaller than it means anything.
+
+**Next action for whoever picks this up (in order):**
+1. Phase-1 manual tuning (`docs/protocol.md` §6.1), which this method skipped: start with
+   3 repeats of the frozen config, then the same at playback rate 0.5 (suspected variance
+   source: rate-1.0 playback on a 2c/4t machine; LIO-SAM's mapping node has queue size 1 and
+   drops scans it cannot process in time). Then single changes with repeats. Two are already
+   tried once and reverted as not-shown-better, both genuinely unsettled against this spread:
+   `degeneracyThreshold` 0 vs 10, and `Horizon_SCAN` 1800 vs 2000 -- note 2000 is the
+   *physically correct* value (measured 0.18 deg azimuth step; 1800 discards 9.7% of in-range
+   returns into occupied range-image cells vs 2.0%), kept at 1800 only because the single run
+   scored worse, so settle it with repeats rather than inheriting the wrong value. Highest
+   value of all: `imuRPYWeight` 0.0 vs 0.01, see the 9-axis paragraph above. Then leaf sizes
+   (FAST-LIO2 needed 0.5 -> 0.2 m here).
+2. Phase-2 sweep bounded by phase-1, then a fresh held-out evaluation on exp16/exp18. The
+   old sweep (`udrqijbp`) and held-out runs describe the bug, not the method; never compare
+   against them.
+3. Only then: merge to `main` (confirm with the user first).
+
+Launch pattern (the image bakes in the config and wrapper, so mount both over it):
+```
+docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
+  -v $(pwd)/configs:/configs:ro -v $(pwd)/scripts/run_lio_sam.sh:/run_lio_sam.sh:ro \
+  [-e LIO_SAM_CONFIG=/runs/_candidates/<x>.yaml] [-e LIO_SAM_RECORD=/runs/<id>/diag.bag] \
+  lio-benchmark/lio_sam:dev /run_lio_sam.sh /data/hilti22/rosbags/<seq>.bag \
+  /runs/<id>/raw_lio_sam.tum 600 1.0 2>&1 | tee runs/<id>/lio_sam.log
+```
+`lio-bench eval <seq> <tum> --frame lidar --run-dir <run>` (LIO-SAM publishes lidar-frame
+poses). Rebuilding the image after a patch change recompiles only the LIO-SAM layer.
 
 ## Benchmark protocol
 
@@ -192,8 +217,8 @@ integration decisions), journal (chronological experiment log) |
 ## Next steps
 
 1. ~~Foundation~~, ~~FAST-LIO2 baseline/tuning/held-out eval~~ — done, see above.
-2. **LIO-SAM: root-cause the rotation failure** — see "LIO-SAM: status and open issue" above.
-   Not mergeable until fixed; not usable for cross-method comparison until then either.
+2. **LIO-SAM: phase-1 tuning, re-sweep, fresh held-out** — the rotation failure is fixed
+   (see the LIO-SAM section above); the method is not comparable until retuned and re-evaluated.
 3. Add GLIM, DLIO, original FAST-LIO, RTAB-Map ICP+IMU through the same interface. Resolve
    LOAM's implementation ambiguity or drop it with a stated reason (`docs/methods.md`
    "Exclusions" section — currently empty).
@@ -201,8 +226,8 @@ integration decisions), journal (chronological experiment log) |
    comparison, `results/`, `lio-bench report`.
 
 Ask only for information that materially blocks the next action. Do not claim benchmark
-rankings before ≥2 methods have real, trustworthy runs — LIO-SAM's current numbers reflect an
-unresolved bug, not the method's actual performance.
+rankings before ≥2 methods have real, trustworthy runs — LIO-SAM's numbers are post-fix but
+untuned and unrepeated; its old sweep/held-out numbers reflect a now-fixed bug.
 
 ## Suggested skills
 

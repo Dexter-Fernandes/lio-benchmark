@@ -199,6 +199,30 @@ master at integration time), on `ros:noetic-ros-base` (same pinned digest as `fa
     (`tests/test_adapters.py`), not by inspection. Fixed by seeding the initial quaternion
     from the first accelerometer reading (`orientation_filter.initial_quaternion`), the
     standard practical fix, used identically in `imu_orientation_node.py` and the test.
+  - **Accuracy of the substitute, measured against ground truth.** Upstream's README requires
+    a 9-axis IMU, and states what it needs the estimate for: roll/pitch "to initialize the
+    system at the correct attitude", yaw "to initialize the system at the right heading when
+    using GPS data" (no GPS in this benchmark, `docs/protocol.md` #1, so the yaw role does not
+    apply). Running the filter over exp14's full IMU stream and comparing the gravity
+    direction it implies in the body frame against dense GT (yaw-independent, so the
+    unobservable heading does not contaminate it): tilt error mean 1.60 deg, median 0.93 deg,
+    p95 4.64 deg, max 7.92 deg, and **0.70 deg over the 6 s static window the system
+    initializes in**. Yaw drift relative to GT over the whole 74 s sequence is 1.2 deg max --
+    small only because the sequence is short; it is unbounded in principle. So the deviation
+    from the 9-axis requirement is real but quantified, and small exactly where the README
+    says the estimate matters.
+  - **What the deviation costs, bounded with a synthetic perfect IMU.** Hilti's own GT
+    orientation, interpolated to 400 Hz, was fed to LIO-SAM in place of the Madgwick output as
+    a stand-in for a real 9-axis sensor (a **GT-fed diagnostic that violates
+    `docs/protocol.md` §3 and is never reportable**, run `20260916T0006*`, `docs/journal.md`).
+    Result, on exp14 with the fixed config: at the frozen `imuRPYWeight: 0.0` the orientation
+    source makes no measurable difference, because at weight 0 the quaternion only seeds the
+    initial attitude and the fallback guess. With upstream's `imuRPYWeight: 0.01` restored, a
+    perfect orientation is worth roughly 0.19 m ATE translation, 3.8 deg ATE rotation and
+    5.9 deg RPE 10 s rotation against the compliant Madgwick control. So the 9-axis deviation
+    is moot as configured today and modest but real if the RPY constraint is re-enabled --
+    which that experiment also showed is no longer harmful post-degeneracy-fix, unlike the
+    pre-fix diagnostic that motivated setting it to 0.
 - **Point-cloud adapter.** LIO-SAM's `VelodynePointXYZIRT`
   (`src/imageProjection.cpp`) is byte-identical to FAST-LIO2's velodyne layout (x, y, z,
   intensity as f4, `ring` u2, `time` f4 seconds relative to the header stamp;
@@ -213,6 +237,21 @@ master at integration time), on `ros:noetic-ros-base` (same pinned digest as `fa
   `extrinsicRPY` is set equal to `extrinsicRot` since the synthesized orientation is computed
   directly in the same raw IMU frame as accel/gyro (no separate AHRS-frame offset to correct
   for, unlike a genuine 9-axis IMU with its own internal fusion frame).
+  - **Checked physically, not just by convention.** The README's requirement is that IMU data,
+    once transformed, is in the lidar frame under ROS REP-105 (x forward, y left, z up), and
+    it asks the user to verify by rotating the sensor suite while printing the transformed
+    readings in `imuHandler()`. That procedure is impossible on a recorded bag, so the
+    equivalent was done numerically against ground truth, which is stronger than reading
+    printed values: (a) the measured at-rest specific force [0.173, 0.164, -9.660] m/s^2
+    (`docs/dataset.md`) maps through `extrinsicRot` to [-0.164, -0.173, **+9.66**], i.e. z up
+    and +9.8-ish as REP-105 requires; (b) the raw gyro matches GT body angular velocity per
+    axis with correlation 0.9994 / 0.9997 / 1.0000 and slope 1.001 / 1.001 / 0.998, ruling out
+    any axis swap, sign flip or scale error before `extrinsicRot` is applied at all. Note also
+    that `T_I_L` here is a 180 deg rotation about (1, -1, 0) and therefore self-inverse, so the
+    `T_L_I` vs `T_I_L` direction cannot change the rotation part either way -- the distinction
+    matters for `extrinsicTrans`, not for `extrinsicRot`. `extrinsicRPY` satisfies the README's
+    own definition: it asks for `q_lb`, and `imuConverter()` forms `q_final = q_from * extQRPY`
+    with `extQRPY = extRPY.inverse()`, giving `q_wl = q_wb * q_bl` as documented.
 - **GPS factor and loop closure (`docs/protocol.md` #1, hard requirement).**
   `loopClosureEnableFlag: false`. No GPS topic is ever published in this benchmark
   (online-odometry scope); `mapOptmization.cpp::addGPSFactor()` no-ops on an empty
@@ -250,25 +289,62 @@ master at integration time), on `ros:noetic-ros-base` (same pinned digest as `fa
   no configurable optimization-iteration-count param (`mapOptmization.cpp` hardcodes 30 LM
   iterations at `src/mapOptmization.cpp:1292`), unlike FAST-LIO2's `max_iteration` -- verified
   against source, so no such sweep dimension exists for this method.
-- **Status: unresolved rotation failure, not a working baseline yet.** The exp14 baseline, all
-  8 sweep trials, and both held-out runs (`docs/journal.md`) share one pattern: ATE rotation
-  RMSE stays 100-170 deg in every single run regardless of config, while translation error
-  varies with the sampled params. This is not a normal tuning or generalization gap like
-  FAST-LIO2's -- it is a structural failure. A diagnostic run
-  (`20260915T222509Z_lio_sam_exp14`, `docs/journal.md`) zeroed `imuRPYWeight` (removing the
-  Madgwick-synthesized orientation's influence on `mapOptmization`'s pose graph): translation
-  improved dramatically (ATE trans RMSE 349.1 -> 29.3 m, >10x), confirming that constraint
-  *was* corrupting translation, but rotation RMSE barely moved (124.7 -> 129.1 deg) -- so the
-  orientation adapter's RPY soft-constraint is **not**, by itself, the dominant cause of the
-  rotation failure. Remaining candidates, none yet isolated: IMU preintegration/scan-matching
-  producing bad rotation independent of the RPY factor (raw gyro/accel drive preintegration
-  via `extrinsicRot`, unaffected by `imuRPYWeight`); `Horizon_SCAN: 1800` (a datasheet
-  estimate, not measured) degrading feature-based rotation estimation; or, less likely,
-  something in evaluation/alignment itself. Root-causing this fully is exactly what phase-1
-  manual investigation (`docs/protocol.md` §6.1) exists to catch before a sweep, and it was
-  explicitly skipped for this method (confirmed decision) -- its absence is the direct,
-  visible cost, not a silent one. **Do not use this integration for cross-method comparison
-  until the rotation failure is fully root-caused and fixed.**
+- **Degeneracy threshold patch (root cause of the rotation failure, resolved).** Every early
+  LIO-SAM run (exp14 baseline, all 8 sweep trials, both held-out runs, four diagnostics)
+  shared ATE rotation RMSE of 100-170 deg regardless of config. Offline analysis of those
+  trajectories showed yaw was tracked (1 s yaw-rate correlation with GT 0.69) while roll and
+  pitch were not (0.1-0.2), z spanned 72 m against GT's 4 m, and -- decisively -- ground truth
+  is motionless for the first 6 s of exp14 yet every run tilted identically to ~-30 deg
+  pitch and sank ~1.1 m in that window. Against a fixed single-scan map with nothing moving,
+  scan-to-map can only drift like that if it is not applying the tilt/z updates. Recording
+  LIO-SAM's internals (`scripts/run_lio_sam.sh` with `LIO_SAM_RECORD`, analysed by
+  `scripts/lio_sam_diag.py`; run `20260915T230256Z`) showed `mapOptmization::LMOptimization()`'s
+  degeneracy flag set on 91% of scans from the very first, feature counts healthy (~480 corner
+  / ~1500 surf per scan) and IMU delivery complete, and the LM output's per-scan z step equal
+  to the IMU-preintegration guess's. Mechanism: upstream zeroes any update direction whose
+  J^T J eigenvalue is below a hardcoded 100 -- an outdoor-Velodyne scale (rotation-block
+  eigenvalues scale with range squared; this scene's median range is ~1 m), so tilt/z were
+  classed as degenerate, their updates discarded, the pose rode the preintegration on those
+  axes, and the corrupted keyframes poisoned the map. `docker/lio_sam/degeneracy_threshold.patch`
+  (applied with `git apply` next to the Noetic patches) exposes the cutoff as
+  `lio_sam/degeneracyThreshold` (default 100, upstream-identical) and logs the six
+  eigenvalues per scan. With it at 0 (run `20260915T230642Z`) the static phase holds to
+  +-0.4 deg / 2 cm, resets drop to 0, and exp14 goes from ATE 29.3 m / 129 deg to
+  1.07 m / 18.8 deg (RPE 1 s rot 26.6 -> 4.5 deg). Measured eigenvalues: the smallest is 30-48
+  while the rig is static and LM holds exactly, median 42, p10 12.6, so 73% of scans sit
+  below upstream's 100. A measured 10 (run `20260915T231202Z`) was not better, and the
+  projection has only ever been seen to harm on this data, so the frozen config keeps it
+  off (`degeneracyThreshold: 0.0`); 0 vs 10 is a phase-1 item to settle with repeats.
+  **Confirmed against upstream's own data**: replaying LIO-SAM's `walking_dataset` (VLP-16,
+  outdoor, real 9-axis Microstrain, upstream `params.yaml` verbatim, threshold left at its
+  default 100) runs clean with zero warnings of any kind, and its smallest LM eigenvalue has a
+  median of 564.6 against Hilti's 42.2 -- 13x larger, tripping upstream's threshold on 2.5% of
+  scans versus 73% here. So the constant is well-calibrated for the range regime LIO-SAM was
+  developed in and simply encodes an assumption this dataset violates; nothing about this
+  integration is at fault. That run also validates the build end to end on reference data and
+  confirms the patch is behaviour-preserving when the param is unset (`docs/journal.md`).
+  Also learnt on the way: `imuRPYWeight: 0.0` (run `20260915T222509Z`, the Madgwick roll/pitch
+  slerp cost >10x in translation; kept), and the run-to-run variance of a diverged estimator is
+  enormous (an identical config gave 0 and 46 preintegration resets), which is why the three
+  earlier single-run diagnostics (Horizon_SCAN 1630, heading init off, loop closure on) read
+  as "worse" without meaning anything.
+- **Gravity magnitude (measured, kept).** `imuGravity: 9.663`, the at-rest specific-force norm
+  from `docs/dataset.md` (9.660-9.668 across all three sequences), not upstream's 9.80511.
+  LIO-SAM fixes gravity magnitude inside GTSAM's preintegration and its accel-bias random walk
+  cannot absorb a 0.14 m/s^2 mismatch (FAST-LIO2 estimates gravity as a state and never saw
+  this). Evidence: at 9.80511 the preintegration guess sank at ~0.125 m/s^2 on a provably
+  static rig; at 9.663 its static-phase z step is ~0 (run `20260915T231502Z`). Metrics inside
+  the fixed config's measured run-to-run spread (repeat `20260915T231728Z`: ATE trans
+  0.74-1.07 m, rot 19-22 deg, RPE 10 s rot 6-27 deg on exp14 -- large, so phase-1 judgements
+  need >=3 repeats; rate-1.0 playback on a 2c/4t machine is the suspected source).
+- **Status: rotation failure fixed; not yet a tuned, comparable baseline.** The remaining gap
+  to FAST-LIO2 on exp14 (0.04 m / 0.8 deg) is ordinary integration and tuning work. Still to
+  do before this method's numbers can be compared: the phase-1 manual tuning that was skipped
+  (repeats to bound run-to-run variance, ideally at rate 0.5; `degeneracyThreshold` 0 vs 10; `Horizon_SCAN` 2000
+  from the measured 0.18 deg azimuth step -- the config's 1800 is a datasheet guess and the
+  earlier 1630 test was a returned-point count, not the grid), then a properly bounded
+  phase-2 sweep and a fresh held-out evaluation. The old sweep and held-out numbers describe
+  the bug, not the method.
 
 ## Exclusions
 
