@@ -3,19 +3,32 @@
 Reproducible LiDAR-inertial odometry benchmarking on Hilti-Oxford 2022, with containerised
 pipelines, W&B experiment tracking, and held-out trajectory evaluation.
 
-> **Status:** FAST-LIO2 is tuned (measured IMU noise covariance + a measured registration
-> voxel size; a 15-trial Bayesian sweep found nothing better) and evaluated held-out on
-> exp16/exp18. exp18 shows a normal generalization gap; exp16 diverges reproducibly partway
-> through and is an open failure-analysis case (`docs/journal.md`). No other method is
-> integrated yet.
+> **Status:** two methods integrated.
+>
+> **FAST-LIO2** is tuned (measured IMU noise covariance + a measured registration voxel size;
+> a 15-trial Bayesian sweep found nothing better) and evaluated held-out on exp16/exp18.
+> exp18 shows a normal generalization gap; exp16 diverges reproducibly partway through and is
+> an open failure-analysis case (`docs/journal.md`).
+>
+> **LIO-SAM** runs end-to-end and a systematic rotation failure in it has been root-caused and
+> fixed: upstream hardcodes a scan-matching degeneracy cutoff calibrated for outdoor lidar
+> ranges, which discarded 91% of the tilt and height corrections in this close-range basement
+> (`docs/methods.md`). exp14 went from 29.3 m / 129° to 1.07 m / 18.8°. It is **not yet
+> comparable**: it still owes the manual tuning phase it skipped, a re-run sweep and a fresh
+> held-out evaluation, and its earlier sweep and held-out numbers describe the bug rather than
+> the method.
+>
+> No cross-method comparison is published yet — that needs two methods with trustworthy
+> held-out results.
 
 ## Scope
 
 - **Dataset:** Hilti-Oxford 2022. Tune on **exp14**; hold out **exp16** and **exp18**. These
   are the three sequences with dense 6-DoF reference trajectories.
-- **Methods (planned):** FAST-LIO2, original FAST-LIO, LIO-SAM, GLIM (CPU), DLIO, RTAB-Map
-  ICP+IMU, and LOAM depending on the implementation. See [docs/methods.md](docs/methods.md)
-  for the variant distinctions and dataset-specific integration issues.
+- **Methods:** FAST-LIO2 and LIO-SAM are integrated; original FAST-LIO, GLIM (CPU), DLIO,
+  RTAB-Map ICP+IMU and LOAM (depending on the implementation) are planned. See
+  [docs/methods.md](docs/methods.md) for the variant distinctions and dataset-specific
+  integration issues.
 - **Comparison:** online odometry with loop closure, GPS and prior maps disabled; ATE/RPE
   with SE(3) alignment and no scale; coverage, reliability and compute. See
   [docs/protocol.md](docs/protocol.md).
@@ -30,7 +43,7 @@ three sequences, their MCAP conversions and the IMU noise recording.
 ```bash
 cp .env.example .env               # set LIO_DATA_ROOT to a directory on a large partition
 uv sync                            # host environment (Python 3.11)
-uv run pytest                      # 60 tests, no dataset needed
+uv run pytest                      # 71 tests, no dataset needed
 
 uv run lio-bench data status       # what is present / partial / verified / missing
 uv run lio-bench data download     # default groups: ground truth, calibration, IMU noise, 3 bags
@@ -64,8 +77,9 @@ Each run is a directory under `runs/` (configurable with `LIO_RUNS_ROOT`) holdin
 - the resolved configuration and its hash;
 - the environment and dataset hashes;
 - the hypothesis, change, metrics, trajectory and plots;
-- for methods that save a map (FAST-LIO2: `pcd_save.pcd_save_en`), the map itself (`map.pcd`)
-  and a rendered top-down view (`map.png`, `lio-bench eval` calls `plots.plot_pcd_map`);
+- for methods that save a map (FAST-LIO2: `pcd_save.pcd_save_en`; LIO-SAM: `savePCD`), the map
+  itself (`map.pcd`) and a rendered top-down view (`map.png`, `lio-bench eval` calls
+  `plots.plot_pcd_map`);
 - the decision.
 
 `lio-bench log <run_dir>` mirrors a run to Weights & Biases; `WANDB_MODE` defaults to
@@ -84,8 +98,8 @@ the project.
 | `configs/eval/` | frozen evaluation parameters |
 | `src/lio_benchmark/` | download, convert, inspect, frames, evaluation, tracking, CLI |
 | `tests/` | hashing, downloads (local HTTP server), manifest, frames, trajectories, evaluator, conversion, run records |
-| `docker/`, `.devcontainer/` | tools image, fast_lio2 image; one per method as they are integrated |
-| `adapters/` | input/output conversion between the dataset and a method (e.g. `adapters/fast_lio2/`) |
+| `docker/`, `.devcontainer/` | tools, fast_lio2 and lio_sam images; one per method as they are integrated |
+| `adapters/` | input/output conversion between the dataset and a method (`adapters/fast_lio2/`, `adapters/lio_sam/`) |
 | `docs/` | protocol, dataset, methods, journal |
 | `results/` | curated, publishable tables and plots (none yet) |
 

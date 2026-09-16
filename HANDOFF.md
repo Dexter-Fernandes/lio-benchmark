@@ -1,11 +1,16 @@
 # lio-benchmark — agent handoff
 
 Prepared: 14 September 2026. Updated: 16 September 2026. Status: foundation done, **FAST-LIO2
-fully integrated, tuned and evaluated held-out**, merged to `main`. **LIO-SAM runs end-to-end
-and its rotation failure is root-caused and fixed (branch `feat/lio-sam-integration`, not
-merged), but it still owes the phase-1 tuning it skipped, a re-sweep and a fresh held-out
-evaluation before it is comparable.** See "LIO-SAM: rotation failure root-caused and fixed"
+fully integrated, tuned and evaluated held-out**, merged to `main`. **LIO-SAM runs end-to-end,
+its rotation failure is root-caused and fixed, and `feat/lio-sam-integration` is
+merge-ready (clean fast-forward, pushed, 71 tests green) — awaiting the user's go-ahead per
+this repo's convention.** Merging is now a separate question from comparability: the code is
+correct, but the method still owes the phase-1 tuning it skipped, a re-run sweep and a fresh
+held-out evaluation before its numbers mean anything. See "LIO-SAM" and "Merge readiness"
 below.
+
+**Next session, in order:** confirm and run the fast-forward merge (§ Merge readiness), then
+phase-1 tuning led by `imuRPYWeight` 0.0 vs 0.01 (§ LIO-SAM, "Next action").
 
 ## Goal and confirmed decisions
 
@@ -24,7 +29,7 @@ Build an interview portfolio project comparing LiDAR-inertial odometry methods o
   methods. Explain exclusions and distinguish variants accurately (`docs/methods.md`).
 - User delegated metric recommendations to the assistant.
 
-## Current state (15 September 2026)
+## Current state (16 September 2026)
 
 **Foundation** (from the original `scaffold/foundation` branch, now in `main`): `lio-bench` CLI,
 tools image + devcontainer, manifest, verified/converted/inspected Hilti-Oxford data for
@@ -161,7 +166,10 @@ validate behaviour but never produce ATE/RPE.
 sequence: 0.04 m / 0.8 deg. The spread is the fixed config's own run-to-run variance
 (repeat `20260915T231728Z`), so no single-run comparison smaller than it means anything.
 
-**Next action for whoever picks this up (in order):**
+**Next action for whoever picks this up (in order):** merge first (§ Merge readiness) — the
+correctness blocker that held this branch back is gone, and nothing below changes the code
+that would merge. Then:
+
 1. Phase-1 manual tuning (`docs/protocol.md` §6.1), which this method skipped: start with
    3 repeats of the frozen config, then the same at playback rate 0.5 (suspected variance
    source: rate-1.0 playback on a 2c/4t machine; LIO-SAM's mapping node has queue size 1 and
@@ -176,7 +184,7 @@ sequence: 0.04 m / 0.8 deg. The spread is the fixed config's own run-to-run vari
 2. Phase-2 sweep bounded by phase-1, then a fresh held-out evaluation on exp16/exp18. The
    old sweep (`udrqijbp`) and held-out runs describe the bug, not the method; never compare
    against them.
-3. Only then: merge to `main` (confirm with the user first).
+3. Only then are LIO-SAM's numbers usable for the cross-method comparison.
 
 Launch pattern (the image bakes in the config and wrapper, so mount both over it):
 ```
@@ -188,6 +196,34 @@ docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
 ```
 `lio-bench eval <seq> <tum> --frame lidar --run-dir <run>` (LIO-SAM publishes lidar-frame
 poses). Rebuilding the image after a patch change recompiles only the LIO-SAM layer.
+
+## Merge readiness (`feat/lio-sam-integration` -> `main`)
+
+Verified on 16 September 2026, immediately after the last push:
+
+- `main` is a strict ancestor of the branch, so this is a **clean fast-forward** — no merge
+  commit, no conflicts, nothing on `main` that is not already on the branch.
+- Nine commits ahead, from `f3fb79d` (scaffolding) to `d52a30c` (docs). The four most recent
+  are this session's: diagnostics tooling, the degeneracy fix, a REP-105 test, and the docs.
+- Working tree clean; branch pushed to `origin/feat/lio-sam-integration`; `uv run pytest`
+  green at 71 tests.
+
+```bash
+git checkout main
+git merge --ff-only feat/lio-sam-integration
+git push origin main
+```
+
+**Confirm with the user before running it** (repo convention, "Goal and confirmed decisions"
+above). What is being merged is a correct, documented integration whose accuracy numbers are
+explicitly labelled not-yet-comparable in `README.md`, `docs/methods.md` and
+`docs/journal.md` — merging does not assert that LIO-SAM has been fairly benchmarked, and
+nothing in `results/` claims it has.
+
+Not in the branch, deliberately: the GT-fed orientation node from the 9-axis experiment
+(violates `docs/protocol.md` §3, kept in a session scratchpad so it cannot be used by
+accident) and the `walking_dataset` validation artifacts (outside the manifest, no ground
+truth). Both are described in `docs/journal.md`; neither is reproducible from the repo alone.
 
 ## Benchmark protocol
 
@@ -217,8 +253,9 @@ integration decisions), journal (chronological experiment log) |
 ## Next steps
 
 1. ~~Foundation~~, ~~FAST-LIO2 baseline/tuning/held-out eval~~ — done, see above.
-2. **LIO-SAM: phase-1 tuning, re-sweep, fresh held-out** — the rotation failure is fixed
-   (see the LIO-SAM section above); the method is not comparable until retuned and re-evaluated.
+2. **LIO-SAM: merge, then phase-1 tuning, re-sweep, fresh held-out** — the rotation failure is
+   fixed and the branch is merge-ready (see "Merge readiness"); the method is not comparable
+   until retuned and re-evaluated.
 3. Add GLIM, DLIO, original FAST-LIO, RTAB-Map ICP+IMU through the same interface. Resolve
    LOAM's implementation ambiguity or drop it with a stated reason (`docs/methods.md`
    "Exclusions" section — currently empty).
@@ -231,8 +268,12 @@ untuned and unrepeated; its old sweep/held-out numbers reflect a now-fixed bug.
 
 ## Suggested skills
 
-- **handoff**: update this document after substantive progress (a method fully integrated and
-  merged, a protocol change, a milestone).
+- **mattpocock-skills:diagnosing-bugs**: for the next hard failure. It structured this
+  session's root-cause work, and the open FAST-LIO2 exp16 divergence is the same shape.
+- **handoff**: update this document after substantive progress (a method merged, a protocol
+  change, a milestone).
+- **mattpocock-skills:code-review**: before merging any future method branch, to check it
+  against `docs/protocol.md` rather than only for correctness.
 - **domain-modeling**: if defining CONTEXT.md, terminology or architecture decision records.
 
 Read `docs/methods.md`, `docs/protocol.md` and `docs/journal.md` before acting — they carry
