@@ -135,18 +135,18 @@ covariances, or PointCloud2 layout plus point bytes. Records are kept in
 |---|---|---|---|---|---|
 | exp14 | `/alphasense/imu` | 29539 | 29539 | yes | `lio-bench data convert --dst-version 5` |
 | exp14 | `/hesai/pandar` | 740 | 740 | yes | `lio-bench data convert --dst-version 5` |
-| exp16 | `/alphasense/imu` | 79958 | 79958 | yes | `lio-bench data convert` |
-| exp16 | `/hesai/pandar` | 2003 | 2003 | yes | `lio-bench data convert` |
-| exp18 | `/alphasense/imu` | 43656 | 43656 | yes | `lio-bench data convert` |
-| exp18 | `/hesai/pandar` | 1094 | 1094 | yes | `lio-bench data convert` |
+| exp16 | `/alphasense/imu` | 79958 | 79958 | yes | `lio-bench data convert --dst-version 5` |
+| exp16 | `/hesai/pandar` | 2003 | 2003 | yes | `lio-bench data convert --dst-version 5` |
+| exp18 | `/alphasense/imu` | 43656 | 43656 | yes | `lio-bench data convert --dst-version 5` |
+| exp18 | `/hesai/pandar` | 1094 | 1094 | yes | `lio-bench data convert --dst-version 5` |
 
-exp16/exp18 use rosbag2 metadata version 9 (`rosbags` 0.11.5, MCAP storage) -- the original
-pre-existing exp14 conversion (ranger-lio `convert_bag.sh`) also used version 9 but was
-re-generated at version 5 for GLIM: ROS 2 Humble's `rosbag2_storage` fails to parse version 9's
-`type_description_hash` field (`yaml-cpp: bad conversion`, checked directly against the built
-image), while Humble's own `ros2 bag record` writes version 5 natively. exp16/exp18 need the
-same re-conversion before use with GLIM (not done yet -- their held-out evaluation is a later
-phase, `docs/methods.md` "GLIM integration").
+All three now use rosbag2 metadata version 5 (`rosbags` 0.11.5, MCAP storage), re-generated
+from their originals (exp14's original was pre-existing, ranger-lio `convert_bag.sh`; exp16/
+exp18's were `lio-bench data convert`'s own prior defaults) -- all previously at version 9,
+which ROS 2 Humble's `rosbag2_storage` fails to parse (`yaml-cpp: bad conversion` on the
+version 9's `type_description_hash` field, checked directly against the built image), while
+Humble's own `ros2 bag record` writes version 5 natively. Needed for GLIM's held-out
+evaluation on exp16/exp18 (`docs/methods.md` "GLIM integration").
 
 ## Local layout
 

@@ -463,8 +463,9 @@ around it, and avoids building four C++ projects from source on this machine's 2
   are left at upstream CPU defaults throughout -- this benchmark's primary comparison is
   online odometry only (`docs/protocol.md` #1); GLIM's global mapping is secondary and out of
   scope for tuning.
-- **Status: integrating, phase-1 and a first phase-2 sweep done, not yet a comparable
-  baseline.** Adapted baseline established (3 repeats, exp14: ATE trans RMSE 0.51-1.69 m, rot
+- **Status: integrating, phase-1, a first phase-2 sweep, and held-out evaluation all done --
+  strong on the tune split, fails to generalize to both held-out sequences.** Adapted baseline
+  established (3 repeats, exp14: ATE trans RMSE 0.51-1.69 m, rot
   RMSE 16.7-36.6 deg -- large run-to-run spread, same lesson LIO-SAM's tuning drew). Phase-1
   (`docs/protocol.md` #6.1, `docs/journal.md` "GLIM integration and phase-1 tuning summary"):
   `odometry_cpu.ivox_resolution` 1.0 -> 0.2 m **kept** (3 repeats: ATE trans 0.088-0.106 m,
@@ -483,11 +484,31 @@ around it, and avoids building four C++ projects from source on this machine's 2
   No config change; frozen baseline unchanged. **No trial in the sweep was repeated**, unlike
   phase-1's practice, which is exactly why its "best" trial isn't trustworthy -- a real lesson
   for any future sweep on this method, not just a negative result.
+  **Held-out evaluation (`docs/journal.md`, exp16/exp18 rosbag2 conversions regenerated at
+  `--dst-version 5` first, point 7 above).** The frozen config **fails noticeably on both**
+  held-out sequences, not just one: exp16 ATE trans 4.61 m / rot 106.8 deg; exp18 ATE trans
+  3.24 m / rot 43.4 deg -- both far worse than exp14's 0.09-0.11 m / 1.4-2.2 deg, and both far
+  worse than FAST-LIO2's held-out results (exp16 66.4 m / 62.9 deg *catastrophic but
+  sequence-specific*; exp18 0.21 m / 2.26 deg, a *normal* generalization gap). Both GLIM
+  failures share a shape unlike FAST-LIO2's exp16 divergence: no runaway blow-up (trajectories
+  stay bounded), coverage is fine (no dropout), but rotation is badly wrong and z drifts far
+  past the sequences' true z span, consistent with a large orientation error rather than
+  tracking loss. Two **unconfirmed** hypotheses (root cause not investigated the way LIO-SAM's
+  degeneracy bug was): (1) `odometry_cpu.initialization_mode` is forced to `"LOOSE"` on the
+  pinned 1.2.2 package because `"ROBUST"` isn't recognized (the two-real-bugs note above);
+  GitHub's `master` branch calls `LOOSE` deprecated in favor of `ROBUST`'s more careful
+  gravity/attitude initialization, and exp14's own clean 6 s static start may mask a
+  `LOOSE`-mode weakness a less-static held-out start exposes. (2) Unlike LIO-SAM's fixed
+  `imuGravity` constant, GLIM estimates gravity direction and magnitude as part of its
+  factor-graph state (`robust_initial_state_estimation.cpp`, read from `master`, not yet
+  confirmed against 1.2.2), so the specific gravity-magnitude bug that hurt LIO-SAM is
+  unlikely here, though this hasn't been checked either. Per `docs/protocol.md` §6, held-out
+  results don't feed back into the frozen config -- **GLIM is not currently comparable to
+  FAST-LIO2 on generalization**, only on the exp14 tune split it was measured on.
   Still open: IMU noise covariance (GLIM's preintegration noise-unit convention needs
   verifying against source before reusing FAST-LIO2's measured std values -- still not done,
-  unlike LIO-SAM's/FAST-LIO2's completed noise tuning), and held-out evaluation on exp16/exp18
-  (their rosbag2 conversions still need the same `--dst-version 5` regeneration exp14 got,
-  point 7 above).
+  unlike LIO-SAM's/FAST-LIO2's completed noise tuning), and root-causing the held-out failure
+  above.
 
 ## Exclusions
 

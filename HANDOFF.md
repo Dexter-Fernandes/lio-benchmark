@@ -8,12 +8,15 @@ checked directly with `git rev-parse main feat/lio-sam-integration origin/main` 
 are `d9e0cc7`, so the merge already happened). Merging was a separate question from
 comparability: the code is correct, but the method still owes the phase-1 tuning it skipped, a
 re-run sweep and a fresh held-out evaluation before its numbers mean anything. See "LIO-SAM"
-below. **GLIM integration is now in progress on `feat/glim-integration`** (not yet merged) --
-see "GLIM" below.
+below. **GLIM integration is now in progress on `feat/glim-integration`** (not yet merged):
+phase-1, a phase-2 sweep, and held-out evaluation are all done, but the frozen config **fails
+to generalize to both held-out sequences** (exp16, exp18) despite being competitive with
+FAST-LIO2 on exp14 -- see "GLIM" below, not a finished method yet.
 
-**Next session, in order:** GLIM's IMU noise-unit verification and a repeated phase-2 sweep
-(§ GLIM, "Next action"), then LIO-SAM's own still-owed phase-1 tuning led by `imuRPYWeight`
-0.0 vs 0.01 (§ LIO-SAM, "Next action").
+**Next session, in order:** root-cause GLIM's held-out failure (§ GLIM, "Next action") --
+higher priority than further exp14 tuning, since a config that doesn't generalize isn't usable
+regardless of its tune-split number. Then LIO-SAM's own still-owed phase-1 tuning led by
+`imuRPYWeight` 0.0 vs 0.01 (§ LIO-SAM, "Next action").
 
 ## Goal and confirmed decisions
 
@@ -242,6 +245,20 @@ tuning summary".
   -- given the method's known run-to-run variance at a *fixed* config, this sweep (no repeats
   per point) can't separate real effects from noise. No config change; frozen baseline
   unchanged. Real lesson for next time: repeat candidate points before trusting a ranking.
+- **Held-out evaluation on exp16/exp18 (`docs/protocol.md` #6, `docs/journal.md`).** The
+  frozen config **fails on both** held-out sequences: exp16 ATE trans 4.61 m / rot 106.8 deg;
+  exp18 ATE trans 3.24 m / rot 43.4 deg -- both far worse than exp14 (0.09-0.11 m / 1.4-2.2
+  deg) and both far worse than FAST-LIO2's held-out numbers. Unlike FAST-LIO2 (exp16
+  catastrophic + sequence-specific, exp18 a normal generalization gap), **GLIM fails on both**
+  held-out sequences with the same shape: bounded trajectory (no runaway blow-up), full
+  coverage, but badly wrong rotation and z drift far past each sequence's true z range. Two
+  unconfirmed hypotheses (root cause not investigated): (1) `initialization_mode` is forced to
+  `"LOOSE"` on this pinned package (`"ROBUST"` isn't recognized) -- GitHub `master` calls
+  `LOOSE` deprecated, and exp14's clean 6 s static start may mask a weakness a less-static
+  held-out start exposes; (2) GLIM estimates gravity as part of its factor-graph state rather
+  than a fixed constant (unlike LIO-SAM's `imuGravity` bug), so that specific failure mode is
+  probably ruled out, though unconfirmed against the pinned package. **GLIM is not currently
+  comparable to FAST-LIO2 on generalization** -- only on the exp14 tune split.
 
 Launch pattern (rebuild the image after any config/script change -- unlike FAST-LIO2/LIO-SAM,
 this image has no compiled layer to keep, just a fast apt install, so a full rebuild is cheap;
@@ -257,13 +274,15 @@ docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
 `/glim_ros/odom`). exp14's bag is short (~75s), so a full run plus eval takes well under two
 minutes -- repeats are cheap here, unlike FAST-LIO2/LIO-SAM.
 
-**Next action for whoever picks this up:** IMU noise covariance is the next thing worth
-resolving -- GLIM's preintegration noise-unit convention (`sensors.imu_acc_noise`/
-`imu_gyro_noise`) needs verifying against source before reusing FAST-LIO2's measured std
-values, unlike FAST-LIO2/LIO-SAM where this is already done; once known, a *repeated* sweep
-(top candidates run >=2-3x, not the single-trial-per-point approach used above) would give a
-trustworthy phase-2 result. Then, after regenerating exp16/exp18's rosbag2 conversions, a
-held-out evaluation. Not yet a frozen, comparable baseline.
+**Next action for whoever picks this up:** root-cause the held-out failure before anything
+else -- it's the biggest open question, bigger than further exp14 tuning, since a config that
+doesn't generalize isn't usable regardless of how good its exp14 number looks. Start with the
+two hypotheses above (`initialization_mode` forced to `LOOSE`; check whether `"ROBUST"` exists
+under a different name/param on 1.2.2, or whether a newer PPA package version supports it).
+Separately, IMU noise covariance still needs its unit convention verified against source
+before reusing FAST-LIO2's measured std values; once known, a *repeated* sweep (top candidates
+run >=2-3x, not the single-trial-per-point approach used above) would give a trustworthy
+phase-2 result. Not yet a frozen, comparable baseline.
 
 ## Merge readiness (`feat/lio-sam-integration` -> `main`) -- already done, kept for the record
 

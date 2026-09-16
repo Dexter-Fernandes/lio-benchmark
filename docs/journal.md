@@ -861,3 +861,72 @@ sweep below: held-out evaluation on exp16/exp18 (their rosbag2 conversions still
   should repeat candidate points (at least the top few) before trusting a ranking, the same
   way phase-1 already learned to.
 - **Decision:** revert (no trial promoted; baseline config unchanged)
+
+exp16/exp18's rosbag2/MCAP conversions also needed regenerating at metadata version 5
+(`lio-bench data convert exp{16,18} --dst-version 5`), same fix and same reason as exp14
+(`docs/dataset.md` "Derived data") -- both equivalence-checked and content-matched before use.
+
+### 20260916T080731Z_glim_exp16_glim_heldout (held-out)
+- **Method / sequence / split:** glim / exp16 / heldout
+- **Parent:** `20260916T054701Z_glim_exp14_glim_ivox0.2_r1` (frozen baseline config)
+- **Hypothesis:** Held-out evaluation of the config frozen on exp14
+  (`odometry_cpu.ivox_resolution` 0.2 m, kept after phase-1 + a 20-trial Bayesian sweep found
+  nothing better). No changes made in response to this result, per `docs/protocol.md` §6.
+- **Change:** None -- held-out evaluation, config frozen.
+- **Result:** status ok, coverage 98.5% (1971/2001). ATE trans RMSE 4.609 m, median 3.912 m,
+  p95 9.845 m; ATE rot RMSE 106.82 deg. RPE 1s trans RMSE 1.001 m / rot 29.84 deg; RPE 10s
+  trans RMSE 3.444 m / rot 77.43 deg.
+- **Interpretation:** A different failure shape than FAST-LIO2's exp16 divergence -- no
+  runaway blow-up (positions stay bounded across the full 197 s sequence, roughly -8..+16 m
+  per axis, total path length 215 m), coverage is fine (no dropout), but rotation is badly
+  wrong (ATE rot RMSE 106.8 deg, essentially uncorrelated with true orientation on average)
+  and z drifts to -18 m by t=148 s and stays there, against GT's much smaller 8.8 m z span for
+  this sequence. Plausible reading: a large orientation error develops and z drift follows
+  from that, rather than a separate translation-tracking failure -- not yet diagnosed with
+  per-scan internals the way LIO-SAM's degeneracy bug was, so this stays open. See the
+  combined interpretation after exp18 below for a possible shared cause.
+- **Decision:** investigate
+
+### 20260916T081150Z_glim_exp18_glim_heldout (held-out)
+- **Method / sequence / split:** glim / exp18 / heldout
+- **Parent:** `20260916T054701Z_glim_exp14_glim_ivox0.2_r1` (frozen baseline config)
+- **Hypothesis:** Held-out evaluation of the same frozen config on exp18. No changes made in
+  response to this result, per `docs/protocol.md` §6.
+- **Change:** None -- held-out evaluation, config frozen.
+- **Result:** status ok, coverage 96.1% (758/789). ATE trans RMSE 3.244 m, median 2.033 m,
+  p95 5.972 m; ATE rot RMSE 43.45 deg. RPE 1s trans RMSE 0.895 m / rot 23.82 deg; RPE 10s
+  trans RMSE 3.602 m / rot 45.98 deg.
+- **Interpretation:** Same failure shape as exp16 -- bounded trajectory (106 s sequence, total
+  path length 86 m), z drifts to -13 m by t=80 s against GT's 3 m z span for this single-floor
+  corridor sequence, large rotation error dominates. **This is the notable finding**: unlike
+  FAST-LIO2, where exp16 diverged catastrophically but exp18 showed only a normal, bounded
+  5x/2.7x generalization gap, GLIM's frozen config fails noticeably on **both** held-out
+  sequences, not just one -- this reads as a real generalization weakness in the current
+  config, not a sequence-specific trigger the way FAST-LIO2's exp16 divergence looks like.
+  One plausible, **unconfirmed** hypothesis worth checking first: `odometry_cpu.
+  initialization_mode` is forced to `"LOOSE"` on this pinned package version (1.2.2) because
+  `"ROBUST"` isn't recognized (`docs/methods.md` "GLIM integration", the two-real-bugs note).
+  GitHub's current `master` branch calls `LOOSE` deprecated in favor of `ROBUST`'s more
+  careful gravity/attitude initialization procedure, and exp14's own documented 6 s clean
+  static start (LIO-SAM's finding, reused here since it's the same sensor rig) may simply mask
+  a `LOOSE`-mode initialization weakness that a less-static start on exp16/exp18 exposes.
+  Also relevant: GLIM's `robust_initial_state_estimation.cpp` estimates gravity direction and
+  magnitude as part of its factor-graph state (aligning to a normalized `(0,0,-1)` reference),
+  not a fixed constant the way LIO-SAM's `imuGravity` was -- so the gravity-magnitude bug that
+  hurt LIO-SAM is unlikely to be the same mechanism here, though this is read from `master`
+  source and hasn't been confirmed against the pinned 1.2.2 package the way the config schema
+  mismatches were. Neither hypothesis has been tested; root cause is genuinely open.
+- **Decision:** investigate
+
+**GLIM held-out summary:** the phase-1/phase-2-tuned exp14 config (ATE trans 0.09-0.11 m, rot
+1.4-2.2 deg) does **not** transfer to either held-out sequence (exp16: 4.61 m / 106.8 deg;
+exp18: 3.24 m / 43.4 deg) -- both substantially worse than FAST-LIO2's held-out results
+(exp16: 66.4 m / 62.9 deg, catastrophic but sequence-specific; exp18: 0.21 m / 2.26 deg, a
+normal generalization gap). GLIM's failure on both held-out sequences, with a consistent
+shape (bounded trajectory, large rotation error, z drift), is a stronger and more concerning
+signal than a single-sequence trigger -- it suggests the exp14 tuning may be overfit to that
+sequence's specific conditions (e.g. its clean static start) rather than reflecting a config
+that generalizes, though this is not yet root-caused. Per `docs/protocol.md` §6, held-out
+results are never used to choose parameters, so the frozen config is not being reverted or
+re-tuned in response to this -- but GLIM is **not currently comparable to FAST-LIO2 on
+generalization**, only on the exp14 tune split it was measured on.
