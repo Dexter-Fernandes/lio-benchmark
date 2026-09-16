@@ -818,8 +818,46 @@ can't parse the original version-9 metadata's `type_description_hash` field
 
 **Status after this pass:** ATE trans RMSE ~0.09-0.11 m, rot RMSE ~1.4-2.2 deg on exp14,
 competitive with FAST-LIO2. One phase-1 change kept (`ivox_resolution` 0.2 m); three tried and
-reverted (`ivox_resolution` 0.1 m, VGICP, `num_threads` 4). Still open: IMU noise covariance
-(needs GLIM's preintegration noise-unit convention verified against source before reusing
-FAST-LIO2's measured std values -- not yet done), `smoother_lag`/`max_iterations`, a proper
-phase-2 sweep, and held-out evaluation on exp16/exp18 (their rosbag2 conversions still need
-the same `--dst-version 5` regeneration exp14 got). Not yet a frozen, comparable baseline.
+reverted (`ivox_resolution` 0.1 m, VGICP, `num_threads` 4). Still open before the phase-2
+sweep below: held-out evaluation on exp16/exp18 (their rosbag2 conversions still need the same
+`--dst-version 5` regeneration exp14 got). Not yet a frozen, comparable baseline.
+
+### Bayesian sweep `e76281yq` (phase 2, `docs/protocol.md` §6.2, wider-than-typical ranges — deliberate deviation) — 20 trials, no keep
+
+- **Method / sequence / split:** glim / exp14 / tune
+- **Parent:** `20260916T054701Z_glim_exp14_glim_ivox0.2_r1` (current kept baseline)
+- **Search region:** deliberately wider than a strict phase-1-bounded sweep, per
+  `scripts/glim_sweep.py`'s module docstring — only `ivox_resolution` has a phase-1 finding
+  behind it (0.2 m kept), and its range (uniform 0.02-1.0 m) still spans well past that rather
+  than bracketing it. `ivox_min_dist` uniform 0.01-0.3 m; `max_iterations` int 2-30;
+  `smoother_lag` uniform 0.5-20.0 s; `registration_type` categorical {GICP, VGICP} with
+  `vgicp_resolution` uniform 0.02-1.0 m (phase-1 only tested VGICP at one matched resolution,
+  0.2 m, where it lost clearly — untested elsewhere); `imu_acc_noise`/`imu_gyro_noise`/
+  `imu_bias_noise` log-uniform over 3-4 orders of magnitude (GLIM's preintegration noise-unit
+  convention is unverified against source, so the range covers both plausible interpretations
+  rather than guessing one). `wandb.sweep`, method `bayes`, objective `ate.trans_m.rmse`
+  (minimize). Trials: `scripts/glim_sweep.py`, each a full run record
+  (`*_glim_exp14_sweep` in `runs/`) tagged `sweep` in W&B.
+- **Result:** 20 trials, all status ok, coverage unchanged (658/689). ATE trans RMSE ranged
+  0.093-2.588 m across trials — an enormous spread for one search. Best by objective: trans
+  RMSE 0.0925 m / rot RMSE 1.67 deg (VGICP, `vgicp_resolution` 0.072 m, `imu_gyro_noise`
+  0.000146, run `20260916T062554Z_glim_exp14_sweep`) — inside the kept baseline's own
+  three-repeat spread (0.088-0.106 m / 1.4-2.2 deg), not a clear improvement. The top 10
+  trials show no consistent parameter pattern: `ivox_resolution` among them ranges
+  0.20-0.88 m (no clustering near the kept 0.2 m), `registration_type` splits roughly evenly
+  between GICP and VGICP, and `imu_gyro_noise`/`imu_acc_noise` span their full swept ranges
+  with no visible trend toward either extreme.
+- **Interpretation:** This is not a confirmed optimum the way FAST-LIO2's negative sweep was
+  (that one's top trials clustered near its phase-1-measured region). Here, given this
+  method's already-measured run-to-run variance at a *fixed* config (baseline alone spanned
+  0.51-1.69 m ATE trans across 3 identical-config repeats, `docs/journal.md` above), a
+  single-trial-per-point sweep over a search space this wide cannot reliably separate a real
+  parameter effect from that noise floor -- the lack of any pattern among the top 10 trials is
+  itself evidence of this, not just an absence of a finding. The best result is plausibly just
+  favorable variance landing on an otherwise-unremarkable config, not a genuine optimum. No
+  config change is warranted from this sweep; the phase-1-kept baseline
+  (`ivox_resolution: 0.2`, GICP, upstream noise defaults) stays frozen. Worth recording as a
+  methodological lesson, not just a negative result: a future GLIM sweep on this hardware
+  should repeat candidate points (at least the top few) before trusting a ranking, the same
+  way phase-1 already learned to.
+- **Decision:** revert (no trial promoted; baseline config unchanged)

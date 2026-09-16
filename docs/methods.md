@@ -463,20 +463,31 @@ around it, and avoids building four C++ projects from source on this machine's 2
   are left at upstream CPU defaults throughout -- this benchmark's primary comparison is
   online odometry only (`docs/protocol.md` #1); GLIM's global mapping is secondary and out of
   scope for tuning.
-- **Status: integrating, first phase-1 pass done, not yet a comparable baseline.** Adapted
-  baseline established (3 repeats, exp14: ATE trans RMSE 0.51-1.69 m, rot RMSE 16.7-36.6 deg --
-  large run-to-run spread, same lesson LIO-SAM's tuning drew). Phase-1 (`docs/protocol.md`
-  #6.1, `docs/journal.md` "GLIM integration and phase-1 tuning summary"):
+- **Status: integrating, phase-1 and a first phase-2 sweep done, not yet a comparable
+  baseline.** Adapted baseline established (3 repeats, exp14: ATE trans RMSE 0.51-1.69 m, rot
+  RMSE 16.7-36.6 deg -- large run-to-run spread, same lesson LIO-SAM's tuning drew). Phase-1
+  (`docs/protocol.md` #6.1, `docs/journal.md` "GLIM integration and phase-1 tuning summary"):
   `odometry_cpu.ivox_resolution` 1.0 -> 0.2 m **kept** (3 repeats: ATE trans 0.088-0.106 m,
   rot 1.4-2.2 deg -- competitive with FAST-LIO2's 0.04 m / 0.8 deg, direct analogue of its
   `filter_size_surf`/`filter_size_map` finding); `ivox_resolution` 0.1 m, `registration_type`
   VGICP (matched resolution), and `odometry_cpu.num_threads` 4 all tried and **reverted** (not
-  shown better, VGICP clearly worse). Still open: IMU noise covariance (GLIM's preintegration
-  noise-unit convention needs verifying against source before reusing FAST-LIO2's measured std
-  values -- not yet done, unlike LIO-SAM's/FAST-LIO2's completed noise tuning),
-  `smoother_lag`/`max_iterations`, a properly bounded phase-2 sweep, and held-out evaluation on
-  exp16/exp18 (their rosbag2 conversions still need the same `--dst-version 5` regeneration
-  exp14 got, point 7 above).
+  shown better, VGICP clearly worse).
+  Phase-2 (`docs/protocol.md` #6.2, sweep `e76281yq`, `scripts/glim_sweep.py`,
+  `docs/journal.md`): 20 trials over deliberately wider-than-typical ranges (a documented
+  deviation -- only `ivox_resolution` had a phase-1 finding behind it, and IMU noise units
+  are unverified, so those ranges are wide rather than tightly bounded). ATE trans RMSE
+  spanned 0.093-2.588 m across trials; the best (0.093 m / 1.67 deg) landed inside the kept
+  baseline's own repeat spread, and the top 10 trials showed **no consistent parameter
+  pattern** -- given the method's already-measured run-to-run variance at a fixed config, a
+  single-trial-per-point sweep this wide cannot separate a real effect from that noise floor.
+  No config change; frozen baseline unchanged. **No trial in the sweep was repeated**, unlike
+  phase-1's practice, which is exactly why its "best" trial isn't trustworthy -- a real lesson
+  for any future sweep on this method, not just a negative result.
+  Still open: IMU noise covariance (GLIM's preintegration noise-unit convention needs
+  verifying against source before reusing FAST-LIO2's measured std values -- still not done,
+  unlike LIO-SAM's/FAST-LIO2's completed noise tuning), and held-out evaluation on exp16/exp18
+  (their rosbag2 conversions still need the same `--dst-version 5` regeneration exp14 got,
+  point 7 above).
 
 ## Exclusions
 

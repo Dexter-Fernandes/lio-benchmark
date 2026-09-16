@@ -11,9 +11,9 @@ re-run sweep and a fresh held-out evaluation before its numbers mean anything. S
 below. **GLIM integration is now in progress on `feat/glim-integration`** (not yet merged) --
 see "GLIM" below.
 
-**Next session, in order:** continue GLIM phase-1 manual tuning on exp14 (§ GLIM), then
-LIO-SAM's own still-owed phase-1 tuning led by `imuRPYWeight` 0.0 vs 0.01 (§ LIO-SAM, "Next
-action").
+**Next session, in order:** GLIM's IMU noise-unit verification and a repeated phase-2 sweep
+(§ GLIM, "Next action"), then LIO-SAM's own still-owed phase-1 tuning led by `imuRPYWeight`
+0.0 vs 0.01 (§ LIO-SAM, "Next action").
 
 ## Goal and confirmed decisions
 
@@ -234,6 +234,14 @@ tuning summary".
   analogue of FAST-LIO2's `filter_size_surf`/`filter_size_map` finding). `ivox_resolution`
   0.1 m, `registration_type` VGICP (matched resolution), and `num_threads` 4 all tried and
   **reverted** (not shown better; VGICP clearly worse). All 12 runs logged to W&B.
+- **Phase-2 Bayesian sweep on exp14 (`docs/protocol.md` #6.2, sweep `e76281yq`,
+  `scripts/glim_sweep.py`):** 20 trials, deliberately wider-than-typical ranges (a documented
+  deviation -- only `ivox_resolution` has a phase-1 finding, IMU noise units are unverified).
+  ATE trans RMSE spanned 0.093-2.588 m; best trial (0.093 m / 1.67 deg) landed inside the kept
+  baseline's own repeat spread, and the top 10 trials showed no consistent parameter pattern
+  -- given the method's known run-to-run variance at a *fixed* config, this sweep (no repeats
+  per point) can't separate real effects from noise. No config change; frozen baseline
+  unchanged. Real lesson for next time: repeat candidate points before trusting a ranking.
 
 Launch pattern (rebuild the image after any config/script change -- unlike FAST-LIO2/LIO-SAM,
 this image has no compiled layer to keep, just a fast apt install, so a full rebuild is cheap;
@@ -249,12 +257,13 @@ docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
 `/glim_ros/odom`). exp14's bag is short (~75s), so a full run plus eval takes well under two
 minutes -- repeats are cheap here, unlike FAST-LIO2/LIO-SAM.
 
-**Next action for whoever picks this up:** IMU noise covariance is the next phase-1 candidate
--- GLIM's preintegration noise-unit convention (`sensors.imu_acc_noise`/`imu_gyro_noise`)
-needs verifying against source before reusing FAST-LIO2's measured std values, unlike
-FAST-LIO2/LIO-SAM where this is already done. Then `smoother_lag`/`max_iterations`, a properly
-bounded phase-2 sweep, and (after regenerating exp16/exp18's rosbag2 conversions) a held-out
-evaluation. Not yet a frozen, comparable baseline.
+**Next action for whoever picks this up:** IMU noise covariance is the next thing worth
+resolving -- GLIM's preintegration noise-unit convention (`sensors.imu_acc_noise`/
+`imu_gyro_noise`) needs verifying against source before reusing FAST-LIO2's measured std
+values, unlike FAST-LIO2/LIO-SAM where this is already done; once known, a *repeated* sweep
+(top candidates run >=2-3x, not the single-trial-per-point approach used above) would give a
+trustworthy phase-2 result. Then, after regenerating exp16/exp18's rosbag2 conversions, a
+held-out evaluation. Not yet a frozen, comparable baseline.
 
 ## Merge readiness (`feat/lio-sam-integration` -> `main`) -- already done, kept for the record
 
