@@ -97,6 +97,104 @@ credentials and sync later with `wandb sync`). The W&B entity and project are se
 `lio-bench report` builds/updates a saved W&B Report comparing ATE/RPE across every run in
 the project.
 
+## Running experiments
+
+Every experiment follows the same shape (`docs/protocol.md` §6, entry template in
+`docs/journal.md`), whichever method you're running:
+
+```bash
+run=$(uv run lio-bench run init --method <method> --sequence exp14 --config <resolved.yaml> \
+        --hypothesis "..." --change "..." --parent <run_id or omit for a baseline> \
+        --playback-rate <rate>)
+# ... run the method (per-method command below), producing a TUM trajectory ...
+uv run lio-bench eval exp14 <trajectory.tum> --frame <imu|lidar> --run-dir "$run"
+uv run lio-bench run close "$run" --interpretation "..." --decision keep|revert|investigate
+uv run lio-bench log "$run"
+```
+
+Each subsection below is just the method-specific piece that plugs into the "run the method"
+step: the image, the exact `docker run` invocation, the eval frame, and the script that
+generates a tuning candidate's config override. Status lines say whether a method's numbers
+are trustworthy yet — check `docs/journal.md` and `docs/methods.md` for the full history
+behind any of them.
+
+### FAST-LIO2
+
+*Reference integration: tuned and held-out evaluated (`docs/journal.md`).* Input is the raw
+ROS 1 `.bag`, not the rosbag2 conversion.
+
+```bash
+docker build -f docker/fast_lio2/Dockerfile -t lio-benchmark/fast_lio2:dev .
+docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
+  [-e FAST_LIO2_CONFIG=/runs/_candidates/<x>.yaml] \
+  lio-benchmark/fast_lio2:dev /run_fast_lio2.sh /data/hilti22/rosbags/<seq>.bag \
+  /runs/<id>/raw.tum 600 1.0
+```
+
+`--frame imu`. Generate a tuning candidate with `scripts/fast_lio2_candidate.py --set
+mapping.acc_cov=1.23e-4 --out /tmp/candidate.yaml` (repeatable `--set section.field=value`);
+`scripts/fast_lio2_sweep.py` runs a phase-2 Bayesian sweep over a bounded region.
+
+### LIO-SAM
+
+*Merged, correctness bug fixed, still owes phase-1 tuning — not yet comparable
+(`HANDOFF.md` § LIO-SAM).* Input is the raw ROS 1 `.bag`. The image bakes in its config and
+run wrapper, so a candidate run bind-mounts both over them:
+
+```bash
+docker build -f docker/lio_sam/Dockerfile -t lio-benchmark/lio_sam:dev .
+docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
+  -v $(pwd)/configs:/configs:ro -v $(pwd)/scripts/run_lio_sam.sh:/run_lio_sam.sh:ro \
+  [-e LIO_SAM_CONFIG=/runs/_candidates/<x>.yaml] [-e LIO_SAM_RECORD=/runs/<id>/diag.bag] \
+  lio-benchmark/lio_sam:dev /run_lio_sam.sh /data/hilti22/rosbags/<seq>.bag \
+  /runs/<id>/raw_lio_sam.tum 600 1.0
+```
+
+`--frame lidar` (LIO-SAM publishes lidar-frame poses, unlike the other three).
+`scripts/lio_sam_candidate.py` / `scripts/lio_sam_sweep.py` mirror FAST-LIO2's. `LIO_SAM_RECORD`
+records method internals to a bag for `scripts/lio_sam_diag.py` to inspect (used for the
+degeneracy root-cause, not needed for an ordinary run).
+
+### GLIM — CPU backend
+
+*Tuned on exp14, fails to generalize to held-out exp16/exp18 — not yet comparable
+(`docs/methods.md` "GLIM integration").* Input is the **rosbag2/MCAP** conversion, not the raw
+bag (`uv run lio-bench data convert <seq> --dst-version 5` first, if not already converted —
+ROS 2 Humble can't read the default metadata version).
+
+```bash
+docker build -f docker/glim/Dockerfile -t lio-benchmark/glim:dev .
+docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
+  [-e GLIM_CONFIG=/runs/_candidates/<x>.yaml] \
+  lio-benchmark/glim:dev /run_glim.sh /data/hilti22/rosbag2/<seq> \
+  /runs/<id>/raw_glim.tum 300 1.0
+```
+
+`--frame imu`. `scripts/glim_candidate.py` / `scripts/glim_sweep.py` mirror FAST-LIO2's, with
+section names like `odometry_cpu.ivox_resolution`. exp14's bag is short (~75 s), so repeats are
+cheap here.
+
+### GLIM — GPU backend
+
+*Feature-complete but **hardware-blocked on the reference machine** — needs a GPU of compute
+capability 6.0 or newer (Pascal+); confirmed unrunnable on a compute-capability-5.0 card
+(`docs/methods.md` "GLIM GPU backend"). Don't rebuild this expecting it to work on the same
+hardware — it won't; the failure is architectural (`gtsam_points`' `cudaMallocAsync` requires
+6.0+), not a config or driver issue.* Same rosbag2/MCAP input and run wrapper as the CPU
+backend, plus `--gpus all`:
+
+```bash
+docker build -f docker/glim_gpu/Dockerfile -t lio-benchmark/glim-gpu:dev .
+docker run --rm --gpus all -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
+  -e GLIM_CONFIG=/configs/glim/hilti22_gpu.yaml \
+  lio-benchmark/glim-gpu:dev /run_glim.sh /data/hilti22/rosbag2/<seq> \
+  /runs/<id>/raw_glim_gpu.tum 300 1.0
+```
+
+`--frame imu`. `scripts/glim_candidate.py --base configs/glim/hilti22_gpu.yaml` generates GPU
+candidates (section names like `odometry_gpu.voxel_resolution`); no separate GPU sweep script
+exists yet since no successful run has been produced on this hardware to bound one.
+
 ## Layout
 
 | Path | Purpose |
