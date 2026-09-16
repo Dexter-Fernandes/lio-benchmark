@@ -90,3 +90,15 @@ def test_lio_sam_extrinsic_is_T_L_I_not_T_I_L(T_I_L):
     np.testing.assert_allclose(T_L_I.R @ [1.0, 0, 0], [0, -1.0, 0], atol=1e-6)
     # extrinsicTrans is the lidar-aligned-frame lever arm, not the raw calibration translation.
     assert not np.allclose(T_L_I.t, T_I_L.t)
+
+
+def test_lio_sam_extrinsic_puts_gravity_up_per_rep105(T_I_L):
+    """LIO-SAM's README requires IMU data to land in the lidar frame under ROS REP-105
+    (x forward, y left, z up), i.e. a level, stationary sensor reads ~+9.8 on z after
+    `extrinsicRot`. The raw Hilti IMU reads gravity along -z (docs/dataset.md's measured
+    at-rest specific force, "up -z"), so this only holds if extrinsicRot is the right way
+    round -- the check upstream asks the user to make by hand with the sensor in their hands.
+    """
+    at_rest_I = np.array([0.173, 0.164, -9.660])  # docs/dataset.md, exp14, first 1 s
+    at_rest_L = T_I_L.inverse().R @ at_rest_I
+    np.testing.assert_allclose(at_rest_L, [0.0, 0.0, 9.66], atol=0.2)
