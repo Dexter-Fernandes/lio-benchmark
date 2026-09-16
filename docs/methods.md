@@ -510,6 +510,64 @@ around it, and avoids building four C++ projects from source on this machine's 2
   unlike LIO-SAM's/FAST-LIO2's completed noise tuning), and root-causing the held-out failure
   above.
 
+### GLIM GPU backend
+
+- **Image: upstream's own prebuilt binary, not a from-source CUDA build.**
+  `docker/glim_gpu/Dockerfile` is `FROM koide3/glim_ros2:humble_cuda12.2` (Docker Hub, pinned
+  by digest), the GPU sibling of `docker/glim/Dockerfile`'s PPA-based CPU image -- confirmed by
+  Docker Hub's own tag listing (linux/amd64, 4.43 GB, humble + CUDA 12.2) and by dumping the
+  image's installed `config_odometry_gpu.json`/`config_sub_mapping_gpu.json`/
+  `config_global_mapping_gpu.json` directly, the same "verify the installed artifact, not
+  GitHub `master`" discipline the CPU image's config needed (one real divergence found again:
+  this image's default `config_ros.json` has no `ang_scale` field, unlike the CPU package's --
+  dropped from `configs/glim/hilti22_gpu.yaml` rather than carried over unverified). This image
+  is also a materially newer GLIM build than the CPU PPA package (`ros2 pkg prefix`'s config
+  directory lists `config_odometry_ct.json`/`config_sub_mapping_passthrough.json`, backends the
+  CPU package doesn't have), so its `initialization_mode` was re-checked independently and
+  again reads `"LOOSE"`, not `master`'s `"ROBUST"` -- consistent with the CPU finding, not a
+  new divergence.
+- **Config schema.** GPU's `odometry_gpu`/`sub_mapping_gpu`/`global_mapping_gpu` sections
+  replace CPU's `_cpu` ones; `sensors`/`preprocess`/`ros` are unchanged (dataset adaptation
+  doesn't depend on backend). Structurally different from CPU: no `registration_type` field
+  (GPU is always VGICP-family); `voxel_resolution`/`voxel_resolution_max/_dmin/_dmax` replace
+  `ivox_resolution`; keyframe management lives inside `odometry_gpu` itself rather than only in
+  `sub_mapping`. `scripts/glim_materialize_config.py` picks the CPU or GPU section/filename
+  mapping by detecting which of `odometry_cpu`/`odometry_gpu` the loaded YAML has -- no new CLI
+  flag, `--base configs/glim/hilti22_gpu.yaml` alone selects GPU.
+- **A real bug found only by running it, independent of the hardware problem below:** passing
+  `glim_rosbag` the rosbag2 *directory* (`scripts/run_glim.sh`'s original argument, which the
+  CPU package handles fine) hits a bug in this image's newer `glim_rosbag` build --
+  `glim_rosbag.cpp`'s directory-handling branch is meant to read `metadata.yaml`'s
+  `storage_identifier` and open with that, but in practice it opens with `storage_id="sqlite3"`
+  regardless ("file is not a database"), reproduced directly, not assumed (`ros2 bag info` on
+  the exact same path reads it correctly, so the bag/plugin itself is fine -- the bug is
+  specific to `glim_rosbag`'s own bag-opening code). Fixed by passing the `.mcap` file directly
+  instead of its containing directory (`ROSBAG2_FILE=$(ls "$ROSBAG2_DIR"/*.mcap)`) -- this hits
+  `glim_rosbag.cpp`'s other branch, which hardcodes `storage_id="mcap"` whenever the filename
+  ends in `.mcap`, sidestepping the buggy directory path entirely. Applied to
+  `scripts/run_glim.sh` for both backends (harmless for CPU, which already worked either way).
+- **Status: blocked on this host's hardware, root-caused, not a config or integration
+  problem.** `docker run --gpus all` passthrough works (`nvidia-container-toolkit` configured
+  by the user), and the odometry backend does load (`load libodometry_estimation_gpu.so` in
+  GLIM's own startup log, no fallback). But every attempted run produces `cudaErrorNotSupported`
+  / `cudaErrorInvalidValue` warnings immediately followed by `error: GPU points/covs not
+  allocated!!`, and the IMU state initializer that depends on those points then produces `-nan`
+  (`T_world_imu=se3(-nan,...)`, Levenberg-Marquardt "giving up because cannot decrease error
+  with maximum lambda`) -- not a tuning-sensitive failure, every attempted config failed
+  identically. Root cause: this host's only GPU is a GeForce 940MX, Maxwell, **compute
+  capability 5.0**. `cudaMallocAsync`/`cudaFreeAsync` (CUDA's stream-ordered memory allocator)
+  require compute capability **6.0** (Pascal) or newer -- confirmed against NVIDIA's own
+  documentation, not assumed -- and `gtsam_points`' own GitHub history (PR #86, GPU
+  synchronization around `cudaFreeAsync`) confirms its GPU registration code relies on exactly
+  this allocator. This is a hard architectural floor, not something fixable by CUDA toolkit
+  version, driver version, or any config value: the 940MX is one generation below what
+  `gtsam_points`' GPU backend needs, full stop. No phase-1 tuning was attempted past this point
+  -- there is nothing to tune around a backend that cannot allocate its own working memory.
+  **The GPU backend integration itself (image, config, materialize script, the
+  directory-vs-file bug fix) is complete and left in a working state** for future use on
+  compute-capability-6.0-or-newer hardware (a desktop RTX/GTX-10-series-or-newer card, or a
+  cloud GPU instance) -- only this specific host's card is the blocker.
+
 ## Exclusions
 
 None yet. Any method dropped later is listed here with the concrete reason: build failure on

@@ -13,6 +13,14 @@
 # (glim_ros2/src/glim_ros/rviz_viewer.cpp) as "<node>/odom", a private topic under the node's
 # name -- confirmed by a real run to resolve to /glim_ros/odom, but discovered here via
 # `ros2 topic list` rather than hardcoded, in case a future GLIM version changes the node name.
+#
+# glim_rosbag is passed the .mcap file directly, not the containing directory, even though its
+# own source (glim_rosbag.cpp) accepts either. Passing the directory hits a real bug in the
+# glim_ros2:humble_cuda12.2 image's glim_rosbag build: its is_directory() branch is meant to
+# read metadata.yaml and set storage_id from storage_identifier, but in practice it ends up
+# opening the bag with storage_id "sqlite3" anyway ("file is not a database") -- reproduced
+# directly, not assumed. The file-path branch (bag_filename ends in ".mcap") hardcodes
+# storage_id="mcap" and sidesteps this entirely; confirmed working on both backends.
 set -eo pipefail
 
 ROSBAG2_DIR=${1:?usage: run_glim.sh <rosbag2 dir> <out_tum> [timeout_s] [rate]}
@@ -37,9 +45,11 @@ python3 /scripts/glim_materialize_config.py \
     --base "${GLIM_CONFIG:-/configs/glim/hilti22.yaml}" \
     --defaults "$GLIM_DEFAULTS" --out "$CONFIG_DIR" --rate "$RATE"
 
+ROSBAG2_FILE=$(ls "$ROSBAG2_DIR"/*.mcap)
+
 trap 'kill ${GLIM_PID:-} ${EXPORT_PID:-} 2>/dev/null || true' EXIT
 
-timeout "$TIMEOUT_S" ros2 run glim_ros glim_rosbag "$ROSBAG2_DIR" --ros-args \
+timeout "$TIMEOUT_S" ros2 run glim_ros glim_rosbag "$ROSBAG2_FILE" --ros-args \
     -p config_path:="$CONFIG_DIR" -p auto_quit:=true -p dump_path:="$DUMP_DIR" &
 GLIM_PID=$!
 

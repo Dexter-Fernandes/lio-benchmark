@@ -1,0 +1,141 @@
+# GLIM GPU-backend config for Hilti-Oxford 2022, sibling to configs/glim/hilti22.yaml (CPU).
+# `sensors`/`preprocess`/`ros` are copied verbatim from the CPU config -- dataset adaptation
+# doesn't depend on backend. `odometry_gpu`/`sub_mapping_gpu`/`global_mapping_gpu` replace the
+# `_cpu` sections; their fields verified against the actually-installed config JSON in the
+# pinned base image (docker/glim_gpu/Dockerfile: koide3/glim_ros2:humble_cuda12.2), not
+# GitHub master -- same discipline the CPU config's header documents, and it mattered again
+# here: this image's config_ros.json default extension_modules list includes
+# libstandard_viewer.so (Iridescence/OpenGL GUI), which segfaults headless per
+# github.com/koide3/glim issue #64 ("Failed to create context: BadValue") -- dropped below,
+# same as the CPU config already does. Unlike the CPU package's imu_bias_noise/
+# initialization_mode surprises, this image's config_odometry_gpu.json's
+# initialization_mode is "LOOSE" here too (not master's "ROBUST"), so no divergence there.
+#
+# scripts/glim_materialize_config.py picks the CPU or GPU section/filename mapping by
+# detecting which of odometry_cpu/odometry_gpu is present in the loaded YAML -- no separate
+# flag needed, `--base configs/glim/hilti22_gpu.yaml` alone selects GPU.
+#
+# Not yet phase-1 tuned. Starting hypothesis for odometry_gpu.voxel_resolution, by direct
+# analogy with the kept CPU finding (ivox_resolution 1.0 -> 0.2m, docs/journal.md): try lower
+# than the 0.25 default, in the 0.1-0.2 range upstream's own docs/parameters.md already
+# recommends for indoor scenes.
+
+sensors:
+    imu_acc_noise: 0.05
+    imu_gyro_noise: 0.02
+    imu_int_noise: 0.001
+    imu_bias_noise: 1.0e-5
+    global_shutter_lidar: false
+    T_lidar_imu: [-0.00855, -0.001, 0.055, 0.7071068, -0.7071068, 0.0, 0.0]
+    intensity_field: "intensity"
+    ring_field: "ring"
+    autoconf_perpoint_times: false
+    autoconf_prefer_frame_time: false
+    perpoint_relative_time: false
+    perpoint_time_scale: 1.0
+
+preprocess:
+    distance_near_thresh: 0.1
+    distance_far_thresh: 100.0
+    use_random_grid_downsampling: true
+    downsample_resolution: 1.0
+    random_downsample_target: 10000
+    random_downsample_rate: 0.1
+    enable_outlier_removal: false
+    outlier_removal_k: 10
+    outlier_std_mul_factor: 1.0
+    enable_cropbox_filter: false
+    crop_bbox_frame: "lidar"
+    crop_bbox_min: [-1.0, -1.0, -1.0]
+    crop_bbox_max: [1.0, 1.0, 1.0]
+    k_correspondences: 10
+    num_threads: 4
+
+odometry_gpu:
+    so_name: "libodometry_estimation_gpu.so"
+    initialization_mode: "LOOSE"   # confirmed against the pinned image's config_odometry_gpu.json, not master's "ROBUST"
+    initialization_window_size: 1.0
+    init_pose_damping_scale: 1.0e+10
+    smoother_lag: 5.0
+    use_isam2_dogleg: false
+    isam2_relinearize_skip: 1
+    isam2_relinearize_thresh: 0.1
+    fix_imu_bias: false
+    voxel_resolution: 0.25   # upstream default; leading phase-1 candidate is 0.1-0.2, see header
+    voxel_resolution_max: 0.5
+    voxel_resolution_dmin: 5.0
+    voxel_resolution_dmax: 20.0
+    voxelmap_levels: 2
+    voxelmap_scaling_factor: 2.0
+    full_connection_window_size: 2
+    keyframe_update_strategy: "OVERLAP"
+    max_num_keyframes: 15
+    keyframe_min_overlap: 0.01
+    keyframe_max_overlap: 0.7
+    keyframe_delta_trans: 2.0
+    keyframe_delta_rot: 0.5
+    keyframe_entropy_thresh: 0.99
+    save_imu_rate_trajectory: true
+    num_threads: 2
+
+sub_mapping_gpu:
+    so_name: "libsub_mapping.so"
+    enable_imu: true
+    enable_optimization: false
+    max_num_keyframes: 15
+    keyframe_update_strategy: "OVERLAP"
+    keyframe_update_min_points: 500
+    keyframe_update_interval_rot: 3.14
+    keyframe_update_interval_trans: 1.0
+    max_keyframe_overlap: 0.6
+    create_between_factors: false
+    between_registration_type: "GICP"
+    registration_error_factor_type: "VGICP_GPU"
+    keyframe_randomsampling_rate: 1.0
+    keyframe_voxel_resolution: 0.25
+    keyframe_voxelmap_levels: 2
+    keyframe_voxelmap_scaling_factor: 2.0
+    submap_downsample_resolution: 0.1
+    submap_voxel_resolution: 0.5
+    submap_target_num_points: 50000
+
+global_mapping_gpu:
+    so_name: "libglobal_mapping.so"
+    enable_imu: true
+    enable_optimization: true
+    init_pose_damping_scale: 1.0e+10
+    create_between_factors: false
+    between_registration_type: "GICP"
+    registration_error_factor_type: "VGICP_GPU"
+    randomsampling_rate: 1.0
+    submap_voxel_resolution: 0.5
+    submap_voxel_resolution_max: 1.0
+    submap_voxel_resolution_dmin: 5.0
+    submap_voxel_resolution_dmax: 20.0
+    submap_voxelmap_levels: 2
+    submap_voxelmap_scaling_factor: 2.0
+    max_implicit_loop_distance: 100.0
+    min_implicit_loop_overlap: 0.2
+    use_isam2_dogleg: false
+    isam2_relinearize_skip: 1
+    isam2_relinearize_thresh: 0.1
+
+ros:
+    enable_local_mapping: true
+    enable_global_mapping: true
+    keep_raw_points: false
+    imu_time_offset: 0.0
+    points_time_offset: 0.0
+    acc_scale: 0.0   # this image's config_ros.json has no ang_scale field (unlike the CPU package's) -- dropped, not carried over unverified
+    imu_frame_id: ""
+    lidar_frame_id: ""
+    base_frame_id: ""
+    odom_frame_id: "odom"
+    map_frame_id: "map"
+    publish_imu2lidar: true
+    tf_time_offset: 1.0e-6
+    extension_modules: ["libmemory_monitor.so", "librviz_viewer.so"]   # libstandard_viewer.so dropped, see header (issue #64)
+    imu_topic: "/alphasense/imu"
+    points_topic: "/hesai/pandar"
+    image_topic: "/unused/image"
+    playback_speed: 1.0

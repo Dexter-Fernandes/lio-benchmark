@@ -22,24 +22,44 @@ import yaml
 BASE_CONFIG = Path(__file__).resolve().parent.parent / "configs/glim/hilti22.yaml"
 
 # YAML section -> (output filename, JSON root key), matching GLIM's own config/*.json schema.
-SECTIONS = {
+# Shared between backends; the odometry/sub_mapping/global_mapping sections differ per backend
+# (SECTIONS_BY_BACKEND below) since GPU's schema is structurally different, not just a value
+# swap (configs/glim/hilti22_gpu.yaml's header).
+COMMON_SECTIONS = {
     "sensors": ("config_sensors.json", "sensors"),
     "preprocess": ("config_preprocess.json", "preprocess"),
-    "odometry_cpu": ("config_odometry_cpu.json", "odometry_estimation"),
-    "sub_mapping_cpu": ("config_sub_mapping_cpu.json", "sub_mapping"),
-    "global_mapping_cpu": ("config_global_mapping_cpu.json", "global_mapping"),
     "ros": ("config_ros.json", "glim_ros"),
+}
+SECTIONS_BY_BACKEND = {
+    "cpu": {
+        "odometry_cpu": ("config_odometry_cpu.json", "odometry_estimation"),
+        "sub_mapping_cpu": ("config_sub_mapping_cpu.json", "sub_mapping"),
+        "global_mapping_cpu": ("config_global_mapping_cpu.json", "global_mapping"),
+    },
+    "gpu": {
+        "odometry_gpu": ("config_odometry_gpu.json", "odometry_estimation"),
+        "sub_mapping_gpu": ("config_sub_mapping_gpu.json", "sub_mapping"),
+        "global_mapping_gpu": ("config_global_mapping_gpu.json", "global_mapping"),
+    },
 }
 
 
 def materialize(config: dict, defaults_dir: Path, out_dir: Path) -> Path:
+    backend = "gpu" if "odometry_gpu" in config else "cpu"
+    sections = {**COMMON_SECTIONS, **SECTIONS_BY_BACKEND[backend]}
+
     out_dir.mkdir(parents=True, exist_ok=True)
     for src in defaults_dir.glob("*.json"):
         shutil.copy(src, out_dir / src.name)
 
-    for section, (filename, root_key) in SECTIONS.items():
+    for section, (filename, root_key) in sections.items():
         (out_dir / filename).write_text(json.dumps({root_key: config[section]}, indent=2))
 
+    odometry_file, sub_mapping_file, global_mapping_file = (
+        f"config_odometry_{backend}.json",
+        f"config_sub_mapping_{backend}.json",
+        f"config_global_mapping_{backend}.json",
+    )
     global_cfg = {
         "global": {
             "config_path": "",
@@ -48,9 +68,9 @@ def materialize(config: dict, defaults_dir: Path, out_dir: Path) -> Path:
             "config_viewer": "config_viewer.json",
             "config_sensors": "config_sensors.json",
             "config_preprocess": "config_preprocess.json",
-            "config_odometry": "config_odometry_cpu.json",
-            "config_sub_mapping": "config_sub_mapping_cpu.json",
-            "config_global_mapping": "config_global_mapping_cpu.json",
+            "config_odometry": odometry_file,
+            "config_sub_mapping": sub_mapping_file,
+            "config_global_mapping": global_mapping_file,
         }
     }
     (out_dir / "config.json").write_text(json.dumps(global_cfg, indent=2))

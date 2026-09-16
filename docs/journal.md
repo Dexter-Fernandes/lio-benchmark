@@ -930,3 +930,48 @@ that generalizes, though this is not yet root-caused. Per `docs/protocol.md` §6
 results are never used to choose parameters, so the frozen config is not being reverted or
 re-tuned in response to this -- but GLIM is **not currently comparable to FAST-LIO2 on
 generalization**, only on the exp14 tune split it was measured on.
+
+### GLIM GPU backend attempt (`feat/glim-integration`, 2026-09-16) -- blocked on hardware, no valid run recorded
+
+- **Method / sequence:** glim (GPU backend) / exp14, smoke-testing only.
+- **Motivation:** user asked to try GLIM's GPU odometry/mapping backend alongside the existing
+  CPU integration, comparing against the frozen CPU-tuned config.
+- **What was built:** `docker/glim_gpu/Dockerfile` (`FROM koide3/glim_ros2:humble_cuda12.2`,
+  upstream's own prebuilt image, pinned by digest), `configs/glim/hilti22_gpu.yaml` (GPU
+  odometry/sub_mapping/global_mapping sections, verified against the image's actually-installed
+  config JSON), `scripts/glim_materialize_config.py` made backend-aware (picks CPU/GPU section
+  mapping from which YAML key is present). Full detail in `docs/methods.md` "GLIM GPU backend".
+- **Host hardware, checked directly:** one NVIDIA GeForce 940MX (Maxwell, compute capability
+  5.0, 4 GB VRAM). `nvidia-container-toolkit` was not configured at the start of this session
+  (`docker run --gpus all` failed outright); the user configured it themselves mid-session
+  (confirmed working via `docker run --rm --gpus all koide3/glim_ros2:humble_cuda12.2
+  nvidia-smi`).
+- **A real bug fixed along the way, independent of the hardware result below:** `glim_rosbag`
+  passed the rosbag2 directory (as CPU's older package handles fine) opened the bag with
+  `storage_id="sqlite3"` instead of `"mcap"` on this image's newer `glim_rosbag` build ("file
+  is not a database"), despite `metadata.yaml` correctly declaring `storage_identifier: mcap`
+  and `ros2 bag info` reading the same path correctly. Fixed by passing the `.mcap` file
+  directly (`glim_rosbag.cpp`'s other branch hardcodes `storage_id="mcap"` whenever the
+  filename itself ends in `.mcap`) -- applied to `scripts/run_glim.sh` for both backends.
+- **Result: every attempted run failed identically, regardless of config.** GPU backend loads
+  (`load libodometry_estimation_gpu.so`, no fallback), but immediately produces
+  `cudaErrorNotSupported`/`cudaErrorInvalidValue` warnings, then `error: GPU points/covs not
+  allocated!!`, and the IMU initializer that depends on those points returns `-nan`
+  (`T_world_imu=se3(-nan,...)`). No valid trajectory was ever produced, so no `lio-bench run
+  init/close` record exists for this attempt -- there was nothing to score.
+- **Root cause, confirmed not assumed:** `cudaMallocAsync`/`cudaFreeAsync` (CUDA's
+  stream-ordered memory allocator) require compute capability 6.0 (Pascal) or newer, per
+  NVIDIA's own documentation. The 940MX is compute capability 5.0 -- one generation below the
+  floor. `gtsam_points`' own GitHub history (PR #86, `cudaDeviceSynchronize()` before
+  `cudaFreeAsync()` calls) confirms its GPU registration code depends on exactly this
+  allocator. This is an architectural floor, not fixable by CUDA toolkit version, driver
+  version, or any GLIM config value -- confirmed by testing `initialization_window_size` 1.0
+  vs 3.0 (upstream's own doc comment says LOOSE-mode init "takes a few seconds"; made no
+  difference, ruling out an init-window-too-short explanation before concluding it was
+  hardware).
+- **Decision:** investigate -- not a GLIM integration failure, a hardware ceiling on this host.
+  The integration itself (image, config, materialize script, the directory-vs-file bug fix) is
+  left complete and in a working state for any future host with compute capability 6.0+ (a
+  desktop RTX/GTX-10-series-or-newer card, or a cloud GPU instance). No phase-1 tuning was
+  attempted -- there is nothing to tune around a backend that cannot allocate its own working
+  memory.
