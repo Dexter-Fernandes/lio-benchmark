@@ -3,7 +3,7 @@
 Reproducible LiDAR-inertial odometry benchmarking on Hilti-Oxford 2022, with containerised
 pipelines, W&B experiment tracking, and held-out trajectory evaluation.
 
-> **Status:** two methods integrated.
+> **Status:** three methods integrated.
 >
 > **FAST-LIO2** is tuned (measured IMU noise covariance + a measured registration voxel size;
 > a 15-trial Bayesian sweep found nothing better) and evaluated held-out on exp16/exp18.
@@ -18,6 +18,14 @@ pipelines, W&B experiment tracking, and held-out trajectory evaluation.
 > held-out evaluation, and its earlier sweep and held-out numbers describe the bug rather than
 > the method.
 >
+> **GLIM** (CPU backend) is tuned on exp14 (measured registration voxel size, competitive with
+> FAST-LIO2: 0.09–0.11 m / 1.4–2.2°) but **fails to generalize to both held-out sequences**
+> (exp16: 4.61 m / 106.8°; exp18: 3.24 m / 43.4°), unlike FAST-LIO2, which only diverges on
+> exp16 — an open root-cause question, not yet comparable. A GPU backend was also built and is
+> feature-complete, but is hardware-blocked on the reference machine: its only GPU (compute
+> capability 5.0) is one generation below what `gtsam_points`' GPU code requires, confirmed at
+> the source level (`docs/methods.md` "GLIM GPU backend").
+>
 > No cross-method comparison is published yet — that needs two methods with trustworthy
 > held-out results.
 
@@ -25,8 +33,8 @@ pipelines, W&B experiment tracking, and held-out trajectory evaluation.
 
 - **Dataset:** Hilti-Oxford 2022. Tune on **exp14**; hold out **exp16** and **exp18**. These
   are the three sequences with dense 6-DoF reference trajectories.
-- **Methods:** FAST-LIO2 and LIO-SAM are integrated; original FAST-LIO, GLIM (CPU), DLIO,
-  RTAB-Map ICP+IMU and LOAM (depending on the implementation) are planned. See
+- **Methods:** FAST-LIO2, LIO-SAM and GLIM (CPU and GPU backends) are integrated; original
+  FAST-LIO, DLIO, RTAB-Map ICP+IMU and LOAM (depending on the implementation) are planned. See
   [docs/methods.md](docs/methods.md) for the variant distinctions and dataset-specific
   integration issues.
 - **Comparison:** online odometry with loop closure, GPS and prior maps disabled; ATE/RPE
@@ -43,7 +51,7 @@ three sequences, their MCAP conversions and the IMU noise recording.
 ```bash
 cp .env.example .env               # set LIO_DATA_ROOT to a directory on a large partition
 uv sync                            # host environment (Python 3.11)
-uv run pytest                      # 71 tests, no dataset needed
+uv run pytest                      # 72 tests, no dataset needed
 
 uv run lio-bench data status       # what is present / partial / verified / missing
 uv run lio-bench data download     # default groups: ground truth, calibration, IMU noise, 3 bags
@@ -98,8 +106,8 @@ the project.
 | `configs/eval/` | frozen evaluation parameters |
 | `src/lio_benchmark/` | download, convert, inspect, frames, evaluation, tracking, CLI |
 | `tests/` | hashing, downloads (local HTTP server), manifest, frames, trajectories, evaluator, conversion, run records |
-| `docker/`, `.devcontainer/` | tools, fast_lio2 and lio_sam images; one per method as they are integrated |
-| `adapters/` | input/output conversion between the dataset and a method (`adapters/fast_lio2/`, `adapters/lio_sam/`) |
+| `docker/`, `.devcontainer/` | tools, fast_lio2, lio_sam, glim and glim_gpu images; one per method/backend as they are integrated |
+| `adapters/` | input/output conversion between the dataset and a method (`adapters/fast_lio2/`, `adapters/lio_sam/`, `adapters/glim/`) |
 | `docs/` | protocol, dataset, methods, journal |
 | `results/` | curated, publishable tables and plots (none yet) |
 

@@ -2,21 +2,27 @@
 
 Prepared: 14 September 2026. Updated: 16 September 2026. Status: foundation done, **FAST-LIO2
 fully integrated, tuned and evaluated held-out**, merged to `main`. **LIO-SAM runs end-to-end,
-its rotation failure is root-caused and fixed, and `feat/lio-sam-integration` is merged to
-`main`** (correction: an earlier draft of this file said it was still awaiting go-ahead;
-checked directly with `git rev-parse main feat/lio-sam-integration origin/main` -- all three
-are `d9e0cc7`, so the merge already happened). Merging was a separate question from
-comparability: the code is correct, but the method still owes the phase-1 tuning it skipped, a
-re-run sweep and a fresh held-out evaluation before its numbers mean anything. See "LIO-SAM"
-below. **GLIM integration is now in progress on `feat/glim-integration`** (not yet merged):
-phase-1, a phase-2 sweep, and held-out evaluation are all done, but the frozen config **fails
-to generalize to both held-out sequences** (exp16, exp18) despite being competitive with
-FAST-LIO2 on exp14 -- see "GLIM" below, not a finished method yet.
+its rotation failure is root-caused and fixed**, merged to `main`. Merging was a separate
+question from comparability: the code is correct, but the method still owes the phase-1 tuning
+it skipped, a re-run sweep and a fresh held-out evaluation before its numbers mean anything.
+See "LIO-SAM" below. **GLIM is now also merged to `main`** (`feat/glim-integration`, fast-forward,
+commit `2401ad4`): CPU-backend phase-1, a phase-2 sweep, and held-out evaluation are all done,
+but the frozen config **fails to generalize to both held-out sequences** (exp16, exp18) despite
+being competitive with FAST-LIO2 on exp14. A GPU backend was also built
+(`docker/glim_gpu/`, `configs/glim/hilti22_gpu.yaml`) but is **hardware-blocked and root-caused,
+not fixable on this machine**: the only GPU (GeForce 940MX, compute capability 5.0) is one
+generation below the compute capability 6.0 that `gtsam_points`' `cudaMallocAsync`/
+`cudaFreeAsync` calls require -- confirmed at the source level (no compatibility shim is wired
+in, no older release predates the async allocator, upstream's own `CMakeLists.txt` targets
+Turing+ only). See "GLIM" below. Not a finished method yet on either backend.
 
-**Next session, in order:** root-cause GLIM's held-out failure (§ GLIM, "Next action") --
-higher priority than further exp14 tuning, since a config that doesn't generalize isn't usable
-regardless of its tune-split number. Then LIO-SAM's own still-owed phase-1 tuning led by
-`imuRPYWeight` 0.0 vs 0.01 (§ LIO-SAM, "Next action").
+**Next session, in order:** LIO-SAM's still-owed phase-1 tuning, led by `imuRPYWeight` 0.0 vs
+0.01 (§ LIO-SAM, "Next action") -- now the single highest-value open item across all three
+methods. GLIM's held-out failure root-cause (§ GLIM, "Next action") is still open but was
+explicitly deprioritized this session in favour of merging what's already complete; pick it up
+when there's appetite for another GLIM-specific investigation. The GLIM GPU backend needs
+compute-capability-6.0+ hardware (a desktop RTX/GTX-10-series+ card, or a cloud GPU instance)
+to go any further -- it cannot be progressed on this machine at all.
 
 ## Goal and confirmed decisions
 
@@ -79,9 +85,9 @@ artifacts) repeats with method-specific changes only. Summary:
 every run lands on the dashboard automatically. `scripts/wandb_setup.sh` does one-time login.
 `lio-bench report` builds/updates a saved W&B Report comparing every logged run.
 
-Not done (working): GLIM (see below, first phase-1 pass done on `feat/glim-integration`), DLIO,
-original FAST-LIO, RTAB-Map, LOAM. No
-cross-method comparison yet (only FAST-LIO2 has trustworthy results).
+Not done (working): DLIO, original FAST-LIO, RTAB-Map, LOAM. No cross-method comparison yet
+(only FAST-LIO2 has trustworthy held-out results; LIO-SAM and GLIM both still owe tuning/
+generalization work before their numbers are comparable).
 
 ## Hardware and execution constraints
 
@@ -100,7 +106,9 @@ User-reported machine (unchanged):
 | Home partition | ~111 GiB free (data, out of Git) |
 | Desktop | KDE Plasma / Wayland |
 
-One headless experiment at a time; CPU-only for GLIM; one or two compile jobs. FAST-LIO2 ran
+One headless experiment at a time; one or two compile jobs. The 940MX is compute capability
+5.0 -- confirmed too old for GLIM's GPU backend (`gtsam_points` needs 6.0+), so GLIM is
+CPU-only here in practice, even though a GPU image exists. FAST-LIO2 ran
 fine on this hardware at 1.0x real-time playback — a reasonable default to try for LIO-SAM too,
 falling back to slower playback only if it overloads.
 
@@ -204,11 +212,11 @@ docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
 `lio-bench eval <seq> <tum> --frame lidar --run-dir <run>` (LIO-SAM publishes lidar-frame
 poses). Rebuilding the image after a patch change recompiles only the LIO-SAM layer.
 
-## GLIM: integrated, first phase-1 pass done, not yet merged
+## GLIM: merged to `main`, CPU backend tuned but not held-out-comparable, GPU backend hardware-blocked
 
-Branch `feat/glim-integration` (not merged -- confirm with the user before merging). Full
-detail: `docs/methods.md` "GLIM integration", `docs/journal.md` "GLIM integration and phase-1
-tuning summary".
+Merged from `feat/glim-integration` (fast-forward, `2401ad4`). Full detail: `docs/methods.md`
+"GLIM integration" and "GLIM GPU backend", `docs/journal.md` "GLIM integration and phase-1
+tuning summary" and "GLIM GPU backend attempt".
 
 - **Image:** `docker/glim/Dockerfile` installs `ros-humble-glim-ros` 1.2.2-0jammy from
   koide3's own official PPA (no CUDA), not built from source. Building GTSAM +
@@ -260,6 +268,29 @@ tuning summary".
   probably ruled out, though unconfirmed against the pinned package. **GLIM is not currently
   comparable to FAST-LIO2 on generalization** -- only on the exp14 tune split.
 
+**GPU backend: built, hardware-blocked on this machine, root-caused.**
+`docker/glim_gpu/Dockerfile` (`FROM koide3/glim_ros2:humble_cuda12.2`, upstream's own prebuilt
+image) and `configs/glim/hilti22_gpu.yaml` are complete, and `scripts/glim_materialize_config.py`
+is backend-aware. Every attempted run on this host fails identically regardless of config:
+`cudaErrorNotSupported` -> `GPU points/covs not allocated!!` -> NaN pose. Root cause, confirmed
+at the source level (not just inferred): the only GPU here is a GeForce 940MX (Maxwell,
+compute capability 5.0); `gtsam_points` calls `cudaMallocAsync`/`cudaFreeAsync` directly in
+`cuda_memory.cu`/`cuda_buffer.cu`, which need compute capability 6.0+ (Pascal+) per NVIDIA's
+own docs. Checked for a workaround and found none: the repo's one CUDA-version compatibility
+shim (`cuda_malloc_async.hpp`, falls back to plain `cudaMalloc`/`cudaFree` below CUDA 11.0) is
+never `#include`d anywhere (GitHub code search, zero hits) so it's dead code; the async
+allocator has been there since the file's 2021 origin, so no older release predates it either;
+and upstream's own `CMakeLists.txt` hardcodes Turing-and-newer (`sm_75+`) as its supported
+architecture list, overriding CMake's own Maxwell default rather than accepting it. **This
+cannot be progressed on this machine at all** -- it needs a compute-capability-6.0+ GPU
+(desktop RTX/GTX-10-series+, or a cloud instance) to go any further. Also fixed along the way,
+independent of the hardware wall, kept for both backends: `scripts/run_glim.sh` now passes the
+`.mcap` file directly to `glim_rosbag` rather than its containing directory -- this image's
+newer `glim_rosbag` build has a real bug where the directory path opens with
+`storage_id="sqlite3"` instead of respecting `metadata.yaml`'s declared `mcap` format,
+reproduced directly (`ros2 bag info` on the identical path reads it correctly, so the plugin
+itself is fine -- the bug is specific to `glim_rosbag`'s own bag-opening code).
+
 Launch pattern (rebuild the image after any config/script change -- unlike FAST-LIO2/LIO-SAM,
 this image has no compiled layer to keep, just a fast apt install, so a full rebuild is cheap;
 `GLIM_CONFIG` still overrides the baked-in config for candidates without rebuilding):
@@ -274,47 +305,26 @@ docker run --rm -v $LIO_DATA_ROOT:/data/hilti22:ro -v $(pwd)/runs:/runs \
 `/glim_ros/odom`). exp14's bag is short (~75s), so a full run plus eval takes well under two
 minutes -- repeats are cheap here, unlike FAST-LIO2/LIO-SAM.
 
-**Next action for whoever picks this up:** root-cause the held-out failure before anything
-else -- it's the biggest open question, bigger than further exp14 tuning, since a config that
-doesn't generalize isn't usable regardless of how good its exp14 number looks. Start with the
-two hypotheses above (`initialization_mode` forced to `LOOSE`; check whether `"ROBUST"` exists
-under a different name/param on 1.2.2, or whether a newer PPA package version supports it).
-Separately, IMU noise covariance still needs its unit convention verified against source
-before reusing FAST-LIO2's measured std values; once known, a *repeated* sweep (top candidates
-run >=2-3x, not the single-trial-per-point approach used above) would give a trustworthy
-phase-2 result. Not yet a frozen, comparable baseline.
+**Next action for whoever picks this up:** deprioritized this session in favour of merging
+(user's own call) -- root-causing the held-out failure is still the biggest open question for
+this method, bigger than further exp14 tuning, since a config that doesn't generalize isn't
+usable regardless of how good its exp14 number looks. Start with the two hypotheses above
+(`initialization_mode` forced to `LOOSE`; check whether `"ROBUST"` exists under a different
+name/param on 1.2.2, or whether a newer PPA package version supports it). Separately, IMU noise
+covariance still needs its unit convention verified against source before reusing FAST-LIO2's
+measured std values; once known, a *repeated* sweep (top candidates run >=2-3x, not the
+single-trial-per-point approach used above) would give a trustworthy phase-2 result. Not yet a
+frozen, comparable baseline. The GPU backend cannot be progressed further on this machine at
+all (see above) -- any next attempt needs different hardware first.
 
-## Merge readiness (`feat/lio-sam-integration` -> `main`) -- already done, kept for the record
+## Merge history -- both feature branches now on `main`, kept for the record
 
-**This merge already happened** (see the correction at the top of this file) -- the section
-below is kept as the historical record of what was verified before merging, not a pending
-action. Don't re-run it.
-
-Verified on 16 September 2026, immediately after the last push:
-
-- `main` is a strict ancestor of the branch, so this is a **clean fast-forward** — no merge
-  commit, no conflicts, nothing on `main` that is not already on the branch.
-- Nine commits ahead, from `f3fb79d` (scaffolding) to `d52a30c` (docs). The four most recent
-  are this session's: diagnostics tooling, the degeneracy fix, a REP-105 test, and the docs.
-- Working tree clean; branch pushed to `origin/feat/lio-sam-integration`; `uv run pytest`
-  green at 71 tests.
-
-```bash
-git checkout main
-git merge --ff-only feat/lio-sam-integration
-git push origin main
-```
-
-**Confirm with the user before running it** (repo convention, "Goal and confirmed decisions"
-above). What is being merged is a correct, documented integration whose accuracy numbers are
-explicitly labelled not-yet-comparable in `README.md`, `docs/methods.md` and
-`docs/journal.md` — merging does not assert that LIO-SAM has been fairly benchmarked, and
-nothing in `results/` claims it has.
-
-Not in the branch, deliberately: the GT-fed orientation node from the 9-axis experiment
-(violates `docs/protocol.md` §3, kept in a session scratchpad so it cannot be used by
-accident) and the `walking_dataset` validation artifacts (outside the manifest, no ground
-truth). Both are described in `docs/journal.md`; neither is reproducible from the repo alone.
+`feat/lio-sam-integration` and `feat/glim-integration` are both merged (clean fast-forwards, no
+merge commits, confirmed with the user before each push). `main`/`origin/main` are at `2401ad4`.
+Not in either branch, deliberately: LIO-SAM's GT-fed orientation node from its 9-axis
+experiment (violates `docs/protocol.md` §3, kept in a session scratchpad so it cannot be used
+by accident) and the `walking_dataset` validation artifacts (outside the manifest, no ground
+truth) -- both described in `docs/journal.md`, neither reproducible from the repo alone.
 
 ## Benchmark protocol
 
@@ -344,18 +354,22 @@ integration decisions), journal (chronological experiment log) |
 ## Next steps
 
 1. ~~Foundation~~, ~~FAST-LIO2 baseline/tuning/held-out eval~~ — done, see above.
-2. **LIO-SAM: merge, then phase-1 tuning, re-sweep, fresh held-out** — the rotation failure is
-   fixed and the branch is merge-ready (see "Merge readiness"); the method is not comparable
-   until retuned and re-evaluated.
-3. Add GLIM, DLIO, original FAST-LIO, RTAB-Map ICP+IMU through the same interface. Resolve
-   LOAM's implementation ambiguity or drop it with a stated reason (`docs/methods.md`
-   "Exclusions" section — currently empty).
-4. Once ≥2 methods have frozen configs and trustworthy held-out results: first cross-method
-   comparison, `results/`, `lio-bench report`.
+2. **LIO-SAM: phase-1 tuning, re-sweep, fresh held-out** — merged, rotation failure fixed, but
+   not comparable until retuned and re-evaluated. Highest-value single open item across all
+   three methods (`imuRPYWeight` 0.0 vs 0.01, § LIO-SAM "Next action").
+3. **GLIM: root-cause the held-out generalization failure** (CPU backend) whenever there's
+   appetite for another GLIM-specific investigation; **GPU backend needs different hardware**
+   (compute capability 6.0+) before it can be tuned/swept/held-out-evaluated at all.
+4. Add DLIO, original FAST-LIO, RTAB-Map ICP+IMU through the same interface. Resolve LOAM's
+   implementation ambiguity or drop it with a stated reason (`docs/methods.md` "Exclusions"
+   section — currently empty).
+5. Once ≥2 methods have frozen configs and trustworthy held-out results: first cross-method
+   comparison, `results/`, `lio-bench report`. FAST-LIO2 alone has that today.
 
 Ask only for information that materially blocks the next action. Do not claim benchmark
-rankings before ≥2 methods have real, trustworthy runs — LIO-SAM's numbers are post-fix but
-untuned and unrepeated; its old sweep/held-out numbers reflect a now-fixed bug.
+rankings before ≥2 methods have real, trustworthy runs — LIO-SAM and GLIM are both post-fix/
+post-tune-split but not comparable; their old sweep/held-out numbers (LIO-SAM: bug-era; GLIM:
+fails both held-out sequences) don't represent usable configs yet.
 
 ## Suggested skills
 
